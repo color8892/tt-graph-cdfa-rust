@@ -21,6 +21,12 @@ Run the pseudo-code reproduction closer to Program 1:
 cargo run -- pseudo examples/program1.pseudo
 ```
 
+Run a nested `split / branch / join` pseudo-code example:
+
+```powershell
+cargo run -- pseudo examples/nested_split.pseudo
+```
+
 Export the parsed reproduction as a JSON artifact after applying the paper's
 Program 2 insertion:
 
@@ -59,6 +65,10 @@ end while
 endbranch
 join
 ```
+
+`split / branch / join` blocks can be nested inside branches. Nested splits
+produce nested AND control nodes and are included in ancestor `d_OPN_set`
+summaries.
 
 The pseudo parser infers operations from statements:
 

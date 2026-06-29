@@ -5,7 +5,7 @@ use crate::{ControlType, Operation, OperationType, TTGraph, TTNode};
 pub fn parse_pseudo_program(source: &str) -> Result<TTGraph, String> {
     let lines = logical_lines(source);
     let mut parser = Parser::new(lines);
-    parser.parse_split()?;
+    parser.parse_split(None)?;
     parser.expect_end()?;
     Ok(TTGraph::new(parser.nodes))
 }
@@ -28,25 +28,33 @@ impl Parser {
         }
     }
 
-    fn parse_split(&mut self) -> Result<(), String> {
+    fn parse_split(&mut self, scope_block_id: Option<&str>) -> Result<String, String> {
         let line = self.next_line()?;
-        if line.as_slice() != ["split", "And1"] {
-            return Err("expected `split And1` as the root control".to_string());
+        if line.len() != 2 || line[0] != "split" {
+            return Err(format!("expected `split <id>`, found `{}`", line.join(" ")));
         }
 
+        let control_id = line[1].clone();
         self.insert_unique_node(
-            "And1".to_string(),
-            TTNode::control("And1", ControlType::And, None),
+            control_id.clone(),
+            TTNode::control(
+                control_id.clone(),
+                ControlType::And,
+                scope_block_id.map(str::to_string),
+            ),
         )?;
 
         let mut branch_ids = Vec::new();
         while !self.consume_line(&["join"]) {
-            let branch_id = self.parse_branch("And1")?;
+            let branch_id = self.parse_branch(&control_id)?;
             branch_ids.push(branch_id);
         }
 
-        self.nodes.get_mut("And1").expect("And1 exists").branch_arc = branch_ids;
-        Ok(())
+        self.nodes
+            .get_mut(&control_id)
+            .expect("AND control exists")
+            .branch_arc = branch_ids;
+        Ok(control_id)
     }
 
     fn parse_branch(&mut self, control_id: &str) -> Result<String, String> {
@@ -89,9 +97,10 @@ impl Parser {
                     pending_operations.extend(self.parse_statement_operations()?);
                     continue;
                 }
-                Some("while" | "if") => {
+                Some("split" | "while" | "if") => {
                     self.flush_activity(block_id, &mut previous_item_id, &mut pending_operations)?;
                     match self.peek_line().map(|line| line[0].as_str()) {
+                        Some("split") => self.parse_split(Some(block_id))?,
                         Some("while") => self.parse_while(block_id)?,
                         Some("if") => self.parse_if(block_id)?,
                         _ => unreachable!(),
@@ -99,7 +108,7 @@ impl Parser {
                 }
                 Some(token) => {
                     return Err(format!(
-                        "expected operation/while/if in {block_id}, found `{token}`"
+                        "expected operation/split/while/if in {block_id}, found `{token}`"
                     ));
                 }
                 None => return Err(format!("unclosed block {block_id}")),
@@ -473,7 +482,7 @@ mod tests {
     use std::collections::HashSet;
 
     use super::*;
-    use crate::{OperationType, build_paper_example_graph};
+    use crate::{CcaEntry, CcaType, OperationType, build_paper_example_graph};
 
     const PAPER_PSEUDO: &str = include_str!("../examples/program1.pseudo");
 
@@ -501,5 +510,77 @@ mod tests {
             parsed.nodes["B1"].d_opn_set[&("v".to_string(), OperationType::Write)],
             HashSet::from(["Act1".to_string(), "Act2".to_string()])
         );
+    }
+
+    #[test]
+    fn parses_nested_split_inside_branch() {
+        let mut parsed = parse_pseudo_program(
+            r#"
+            split AndRoot
+            branch B_left
+            split AndInner
+            branch B_then
+            read x
+            endbranch
+            branch B_else
+            kill x
+            endbranch
+            join
+            endbranch
+            branch B_right
+            read x
+            endbranch
+            join
+            "#,
+        )
+        .expect("nested split parses");
+
+        assert_eq!(
+            parsed.nodes["B_left"].d_opn_set[&("x".to_string(), OperationType::Read)],
+            HashSet::from(["Act1".to_string()])
+        );
+        assert_eq!(
+            parsed.nodes["B_left"].d_opn_set[&("x".to_string(), OperationType::Kill)],
+            HashSet::from(["Act2".to_string()])
+        );
+
+        let result = parsed.insert_operation("Act1", "x", OperationType::Write);
+
+        assert!(result.matches_direct_scan());
+        assert_eq!(
+            result.touched_and_nodes,
+            vec!["AndInner".to_string(), "AndRoot".to_string()]
+        );
+        assert_eq!(result.summary_entries.len(), 2);
+        assert!(
+            result
+                .summary_entries
+                .contains(&(CcaType::WriteKill, CcaEntry::new("x", "Act1", "Act2")))
+        );
+        assert!(
+            result
+                .summary_entries
+                .contains(&(CcaType::WriteRead, CcaEntry::new("x", "Act1", "Act3")))
+        );
+    }
+
+    #[test]
+    fn rejects_duplicate_nested_split_ids() {
+        let error = parse_pseudo_program(
+            r#"
+            split And1
+            branch B1
+            split And1
+            branch B2
+            read x
+            endbranch
+            join
+            endbranch
+            join
+            "#,
+        )
+        .expect_err("duplicate control id is rejected");
+
+        assert!(error.contains("duplicate node id `And1`"));
     }
 }

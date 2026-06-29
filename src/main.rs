@@ -3,8 +3,8 @@ use std::fs;
 use std::time::{Duration, Instant};
 
 use tt_graph_cdfa_rust::{
-    CcaEntry, CcaType, OperationType, build_paper_example_graph, build_synthetic_full_and_graph,
-    export::graph_to_json,
+    CcaEntry, CcaType, NodeType, OperationType, build_paper_example_graph,
+    build_synthetic_full_and_graph, export::graph_to_json,
 };
 
 #[derive(Debug)]
@@ -70,15 +70,20 @@ fn run_pseudo(path: Option<&str>) {
     let mut graph = parse_pseudo_graph(path);
 
     println!("Parsed TT Graph from pseudo-code {path}");
-    println!("Table 2 d_OPN_set reproduction from parsed pseudo-code");
-    print_paper_table_2(&graph);
+    if is_paper_program_1_graph(&graph) {
+        println!("Table 2 d_OPN_set reproduction from parsed pseudo-code");
+        print_paper_table_2(&graph);
 
-    let result = graph.insert_operation("Act2", "v", OperationType::Write);
-    println!();
-    println!("After pseudo Program 2 insertion: Write(v) into Act2");
-    println!("Matches direct scan: {}", result.matches_direct_scan());
-    println!("New CCA entries:");
-    print_entries(&result.summary_entries);
+        let result = graph.insert_operation("Act2", "v", OperationType::Write);
+        println!();
+        println!("After pseudo Program 2 insertion: Write(v) into Act2");
+        println!("Matches direct scan: {}", result.matches_direct_scan());
+        println!("New CCA entries:");
+        print_entries(&result.summary_entries);
+    } else {
+        println!("d_OPN_set rows from parsed pseudo-code");
+        print_all_d_opn_rows(&graph);
+    }
 }
 
 fn parse_pseudo_graph(path: &str) -> tt_graph_cdfa_rust::TTGraph {
@@ -426,6 +431,32 @@ fn print_d_opn_rows(graph: &tt_graph_cdfa_rust::TTGraph, rows: &[(&str, &str, Op
     }
 }
 
+fn print_all_d_opn_rows(graph: &tt_graph_cdfa_rust::TTGraph) {
+    let mut block_ids: Vec<String> = graph
+        .nodes
+        .values()
+        .filter(|node| node.node_type == NodeType::Block)
+        .map(|node| node.node_id.clone())
+        .collect();
+    block_ids.sort();
+
+    for block_id in block_ids {
+        println!("{block_id}:");
+        for (variable, op, node_ids) in graph.sorted_d_opn_rows(&block_id) {
+            println!("  d_OPN_set({variable}, {op:?}, {block_id}) = {node_ids:?}");
+        }
+    }
+}
+
+fn is_paper_program_1_graph(graph: &tt_graph_cdfa_rust::TTGraph) -> bool {
+    [
+        "And1", "B1", "B2", "B3", "B4", "B5", "Act1", "Act2", "Act3", "Act4", "Act5", "Loop1",
+        "Xor1",
+    ]
+    .iter()
+    .all(|node_id| graph.nodes.contains_key(*node_id))
+}
+
 fn anomaly_counts(graph: &tt_graph_cdfa_rust::TTGraph, and_id: &str) -> Vec<(CcaType, usize)> {
     let mut rows: Vec<(CcaType, usize)> = graph.nodes[and_id]
         .cca_sets
@@ -471,7 +502,10 @@ fn print_cca_sets(graph: &tt_graph_cdfa_rust::TTGraph, and_id: &str) {
 mod tests {
     use std::time::Duration;
 
-    use super::{BenchmarkRow, benchmark_csv_header, benchmark_row_to_csv};
+    use super::{
+        BenchmarkRow, benchmark_csv_header, benchmark_row_to_csv, is_paper_program_1_graph,
+    };
+    use tt_graph_cdfa_rust::{build_paper_example_graph, build_synthetic_full_and_graph};
 
     #[test]
     fn benchmark_csv_row_is_machine_readable() {
@@ -491,5 +525,14 @@ mod tests {
             "depth,nodes,leaves,target_reads,cca,d_opn_set_us,direct_us,x_faster,match"
         );
         assert_eq!(benchmark_row_to_csv(&row), "4,61,16,1,1,6.8,20.4,3.0,true");
+    }
+
+    #[test]
+    fn classifies_only_the_paper_program_1_graph_as_paper_output() {
+        let paper_graph = build_paper_example_graph();
+        let synthetic_graph = build_synthetic_full_and_graph(1, 1).graph;
+
+        assert!(is_paper_program_1_graph(&paper_graph));
+        assert!(!is_paper_program_1_graph(&synthetic_graph));
     }
 }

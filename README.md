@@ -36,6 +36,12 @@ Run the pseudo-code reproduction closer to the paper's Program 1:
 cargo run -- pseudo examples/program1.pseudo
 ```
 
+Run a nested `split / branch / join` parser example:
+
+```powershell
+cargo run -- pseudo examples/nested_split.pseudo
+```
+
 Export a JSON artifact containing the parsed TT Graph, `d_OPN_set` rows, and
 CCA sets after the Program 2 insertion:
 
@@ -82,6 +88,7 @@ Current implemented scope:
 - insertion-only detection from the paper's main algorithm
 - parser-based reconstruction of the paper's Program 1 from `examples/program1.tt`
 - pseudo-code reconstruction of the paper's Program 1 from `examples/program1.pseudo`
+- nested `split / branch / join` parsing for structured pseudo programs
 - deletion support as a prototype extension
 - `d_OPN_set` strategy and direct scan baseline
 - nested AND/XOR/LOOP correctness tests against direct scan
