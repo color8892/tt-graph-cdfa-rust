@@ -1,5 +1,7 @@
 # TT Graph CDFA Rust Prototype
 
+[![CI](https://github.com/color8892/tt-graph-cdfa-rust/actions/workflows/ci.yml/badge.svg)](https://github.com/color8892/tt-graph-cdfa-rust/actions/workflows/ci.yml)
+
 This is a Rust port of the Python TT Graph CDFA prototype for
 `COMPSAC_YAU_final.pdf`. It is still prototype code, but the graph model is
 structured as a reusable Rust library.
