@@ -29,6 +29,9 @@ jobs:
       - name: Run paper reproduction smoke test
         run: cargo run --quiet -- paper
 
+      - name: Run generic pseudo analysis smoke test
+        run: cargo run --quiet -- analyze-pseudo examples/nested_split.pseudo insert Act1 x Write
+
       - name: Run JSON export smoke test
         run: cargo run --quiet -- export-json examples/program1.pseudo > reproduction.json
 

@@ -34,6 +34,7 @@ impl BenchmarkRow {
 fn main() {
     let args: Vec<String> = env::args().collect();
     match args.get(1).map(String::as_str) {
+        Some("analyze-pseudo") => run_analyze_pseudo(&args[2..]),
         Some("bench") => run_benchmark(),
         Some("bench-csv") => run_benchmark_csv(),
         Some("delete-demo") => run_delete_demo(),
@@ -46,6 +47,9 @@ fn main() {
         Some(command) => {
             eprintln!("unknown command: {command}");
             eprintln!("usage: cargo run -- paper");
+            eprintln!(
+                "       cargo run -- analyze-pseudo <path> [insert <node> <variable> <Read|Write|Kill>]"
+            );
             eprintln!("       cargo run -- parse examples/program1.tt");
             eprintln!("       cargo run -- pseudo examples/program1.pseudo");
             eprintln!("       cargo run -- export-json examples/program1.pseudo");
@@ -57,6 +61,62 @@ fn main() {
             std::process::exit(2);
         }
     }
+}
+
+fn run_analyze_pseudo(args: &[String]) {
+    if args.is_empty() {
+        eprintln!(
+            "usage: cargo run -- analyze-pseudo <path> [insert <node> <variable> <Read|Write|Kill>]"
+        );
+        std::process::exit(2);
+    }
+
+    let path = &args[0];
+    let mut graph = parse_pseudo_graph(path);
+    println!("Parsed TT Graph from pseudo-code {path}");
+    println!("Initial d_OPN_set rows:");
+    print_all_d_opn_rows(&graph);
+
+    if args.len() == 1 {
+        return;
+    }
+
+    if args.len() != 5 || args[1] != "insert" {
+        eprintln!(
+            "usage: cargo run -- analyze-pseudo <path> [insert <node> <variable> <Read|Write|Kill>]"
+        );
+        std::process::exit(2);
+    }
+
+    let node_id = &args[2];
+    if !graph.nodes.contains_key(node_id) {
+        eprintln!("cannot insert into missing node `{node_id}`");
+        std::process::exit(1);
+    }
+
+    let variable = &args[3];
+    let operation = parse_operation_type(&args[4]).unwrap_or_else(|| {
+        eprintln!(
+            "unknown operation `{}`; expected Read, Write, or Kill",
+            args[4]
+        );
+        std::process::exit(2);
+    });
+
+    let result = graph.insert_operation(node_id, variable, operation);
+    println!();
+    println!("After insertion: {operation:?}({variable}) into {node_id}");
+    println!("Matches direct scan: {}", result.matches_direct_scan());
+    println!("Touched AND nodes: {:?}", result.touched_and_nodes);
+    println!(
+        "Updated BLOCK summaries: {:?}",
+        result.summary_blocks_updated
+    );
+    println!("New CCA entries:");
+    print_entries(&result.summary_entries);
+    println!();
+    println!("Updated d_OPN_set rows:");
+    print_all_d_opn_rows(&graph);
 }
 
 fn run_export_json(path: Option<&str>) {
@@ -95,6 +155,15 @@ fn parse_pseudo_graph(path: &str) -> tt_graph_cdfa_rust::TTGraph {
         eprintln!("failed to parse {path}: {error}");
         std::process::exit(1);
     })
+}
+
+fn parse_operation_type(value: &str) -> Option<OperationType> {
+    match value.to_ascii_lowercase().as_str() {
+        "read" => Some(OperationType::Read),
+        "write" => Some(OperationType::Write),
+        "kill" => Some(OperationType::Kill),
+        _ => None,
+    }
 }
 
 fn run_parse(path: Option<&str>) {
@@ -504,6 +573,7 @@ mod tests {
 
     use super::{
         BenchmarkRow, benchmark_csv_header, benchmark_row_to_csv, is_paper_program_1_graph,
+        parse_operation_type,
     };
     use tt_graph_cdfa_rust::{build_paper_example_graph, build_synthetic_full_and_graph};
 
@@ -534,5 +604,22 @@ mod tests {
 
         assert!(is_paper_program_1_graph(&paper_graph));
         assert!(!is_paper_program_1_graph(&synthetic_graph));
+    }
+
+    #[test]
+    fn parses_operation_type_case_insensitively() {
+        assert_eq!(
+            parse_operation_type("Read"),
+            Some(tt_graph_cdfa_rust::OperationType::Read)
+        );
+        assert_eq!(
+            parse_operation_type("write"),
+            Some(tt_graph_cdfa_rust::OperationType::Write)
+        );
+        assert_eq!(
+            parse_operation_type("KILL"),
+            Some(tt_graph_cdfa_rust::OperationType::Kill)
+        );
+        assert_eq!(parse_operation_type("drop"), None);
     }
 }

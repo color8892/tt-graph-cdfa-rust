@@ -27,6 +27,12 @@ Run a nested `split / branch / join` pseudo-code example:
 cargo run -- pseudo examples/nested_split.pseudo
 ```
 
+Run generic pseudo-code analysis with an insertion:
+
+```powershell
+cargo run -- analyze-pseudo examples/nested_split.pseudo insert Act1 x Write
+```
+
 Export the parsed reproduction as a JSON artifact after applying the paper's
 Program 2 insertion:
 
@@ -109,6 +115,8 @@ The tests lock down:
 - Program 2 insertion results.
 - Algorithm 1 / Algorithm 2 equivalence.
 - Nested AND/XOR/LOOP summary propagation against direct scan.
+- Generic pseudo-code analysis with optional insertion and direct-scan
+  equivalence reporting.
 - Deletion extension behavior.
 - JSON export of nodes, `d_OPN_set`, and CCA sets after insertion, including a
   golden fixture regression test.
