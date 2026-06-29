@@ -1,10 +1,16 @@
-# TT Graph CDFA Rust Prototype
+# TT Graph CDFA Rust Implementation
 
 [![CI](https://github.com/color8892/tt-graph-cdfa-rust/actions/workflows/ci.yml/badge.svg)](https://github.com/color8892/tt-graph-cdfa-rust/actions/workflows/ci.yml)
 
-This is a Rust port of the Python TT Graph CDFA prototype for
-`COMPSAC_YAU_final.pdf`. It is still prototype code, but the graph model is
-structured as a reusable Rust library.
+This repository is an independent Rust implementation and reproduction of the algorithms and concepts proposed in the research paper:
+
+> **An Approach to Incrementally Detecting Concurrent Dataflow Anomalies in Software Development**
+> *Authors: Koko Harianto, Feng-Jian Wang, Stephen S. Yau, Mohit B Badiyani, William Cheng-Chung Chu*
+> *Published in: COMPSAC 2025*
+
+**Disclaimer**: The authors of this codebase are not the authors of the paper. This repository is created solely for algorithmic reproduction, performance benchmarking, and educational verification of the paper's `d_OPN_set` strategy.
+
+The graph model is structured as a reusable Rust library.
 
 Question:
 
