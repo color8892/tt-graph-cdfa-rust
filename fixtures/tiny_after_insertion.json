@@ -1,0 +1,70 @@
+{
+  "nodes": [
+    {
+      "id": "Act1",
+      "node_type": "Activity",
+      "control_type": null,
+      "operation_sequence": [{"variable": "x", "operation": "Write"}],
+      "sequence_arc": null,
+      "branch_arc": [],
+      "scope_arc": "B1"
+    },
+    {
+      "id": "Act2",
+      "node_type": "Activity",
+      "control_type": null,
+      "operation_sequence": [{"variable": "x", "operation": "Read"}],
+      "sequence_arc": null,
+      "branch_arc": [],
+      "scope_arc": "B2"
+    },
+    {
+      "id": "And1",
+      "node_type": "Control",
+      "control_type": "And",
+      "operation_sequence": [],
+      "sequence_arc": null,
+      "branch_arc": ["B1", "B2"],
+      "scope_arc": null
+    },
+    {
+      "id": "B1",
+      "node_type": "Block",
+      "control_type": null,
+      "operation_sequence": [],
+      "sequence_arc": "Act1",
+      "branch_arc": [],
+      "scope_arc": "And1"
+    },
+    {
+      "id": "B2",
+      "node_type": "Block",
+      "control_type": null,
+      "operation_sequence": [],
+      "sequence_arc": "Act2",
+      "branch_arc": [],
+      "scope_arc": "And1"
+    }
+  ],
+  "d_opn_set": [
+    {
+      "block": "B1",
+      "variable": "x",
+      "operation": "Write",
+      "nodes": ["Act1"]
+    },
+    {
+      "block": "B2",
+      "variable": "x",
+      "operation": "Read",
+      "nodes": ["Act2"]
+    }
+  ],
+  "cca_sets": [
+    {
+      "and_node": "And1",
+      "cca_type": "WriteRead",
+      "entries": [{"variable": "x", "first_node": "Act1", "second_node": "Act2"}]
+    }
+  ]
+}

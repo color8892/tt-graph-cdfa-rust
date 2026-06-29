@@ -266,7 +266,11 @@ fn cca_type_name(cca_type: CcaType) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use crate::{OperationType, build_paper_example_graph};
+    use std::collections::HashMap;
+
+    use crate::{
+        ControlType, Operation, OperationType, TTGraph, TTNode, build_paper_example_graph,
+    };
 
     use super::graph_to_json;
 
@@ -293,5 +297,42 @@ mod tests {
         let json = super::json_string("quote\" slash\\ newline\n");
 
         assert_eq!(json, "\"quote\\\" slash\\\\ newline\\n\"");
+    }
+
+    #[test]
+    fn tiny_graph_after_insertion_matches_golden_json_fixture() {
+        let mut graph = tiny_graph();
+        let result = graph.insert_operation("Act1", "x", OperationType::Write);
+        assert!(result.matches_direct_scan());
+
+        assert_eq!(
+            graph_to_json(&graph),
+            include_str!("../fixtures/tiny_after_insertion.json")
+        );
+    }
+
+    fn tiny_graph() -> TTGraph {
+        let mut nodes = HashMap::new();
+        nodes.insert(
+            "And1".to_string(),
+            TTNode::control("And1", ControlType::And, None)
+                .with_branch_arc(vec!["B1".to_string(), "B2".to_string()]),
+        );
+        nodes.insert(
+            "B1".to_string(),
+            TTNode::block("B1", "And1").with_sequence_arc("Act1"),
+        );
+        nodes.insert("Act1".to_string(), TTNode::activity("Act1", "B1"));
+        nodes.insert(
+            "B2".to_string(),
+            TTNode::block("B2", "And1").with_sequence_arc("Act2"),
+        );
+        nodes.insert(
+            "Act2".to_string(),
+            TTNode::activity("Act2", "B2")
+                .with_operations(vec![Operation::new("x", OperationType::Read)]),
+        );
+
+        TTGraph::new(nodes)
     }
 }

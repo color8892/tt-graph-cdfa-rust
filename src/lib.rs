@@ -1112,6 +1112,34 @@ mod tests {
     }
 
     #[test]
+    fn nested_loop_xor_and_graph_summary_matches_direct_scan() {
+        let mut graph = build_nested_control_flow_graph();
+
+        let result = graph.insert_operation("ActThen", "x", OperationType::Write);
+
+        assert!(result.matches_direct_scan());
+        assert_eq!(result.touched_and_nodes, vec!["AndRoot".to_string()]);
+        assert_eq!(
+            result.summary_blocks_updated,
+            vec![
+                "B_then".to_string(),
+                "B_loop".to_string(),
+                "B_left".to_string()
+            ]
+        );
+        assert_eq!(
+            result.summary_entries,
+            BTreeSet::from([
+                (CcaType::WriteRead, CcaEntry::new("x", "ActThen", "ActRead")),
+                (CcaType::WriteKill, CcaEntry::new("x", "ActThen", "ActKill")),
+            ])
+        );
+        assert_d_opn(&graph, "B_left", "x", OperationType::Write, &["ActThen"]);
+        assert_d_opn(&graph, "B_loop", "x", OperationType::Write, &["ActThen"]);
+        assert_d_opn(&graph, "B_then", "x", OperationType::Write, &["ActThen"]);
+    }
+
+    #[test]
     fn delete_inserted_operation_updates_summaries_and_cca_sets() {
         let mut graph = build_paper_example_graph();
         let initial_cca_sets = graph.nodes["And1"].cca_sets.clone();
@@ -1159,6 +1187,84 @@ mod tests {
         assert!(!delete_result.removed_operation);
         assert!(delete_result.touched_and_nodes.is_empty());
         assert!(delete_result.summary_blocks_updated.is_empty());
+    }
+
+    fn build_nested_control_flow_graph() -> TTGraph {
+        let mut nodes = HashMap::new();
+
+        nodes.insert(
+            "AndRoot".to_string(),
+            TTNode::control("AndRoot", ControlType::And, None)
+                .with_branch_arc(vec!["B_left".to_string(), "B_right".to_string()]),
+        );
+        nodes.insert(
+            "B_left".to_string(),
+            TTNode::block("B_left", "AndRoot").with_sequence_arc("LoopOuter"),
+        );
+        nodes.insert(
+            "LoopOuter".to_string(),
+            TTNode::control("LoopOuter", ControlType::Loop, Some("B_left".to_string()))
+                .with_operations(vec![Operation::new("guard", OperationType::Read)])
+                .with_branch_arc(vec!["B_loop".to_string()]),
+        );
+        nodes.insert(
+            "B_loop".to_string(),
+            TTNode::block("B_loop", "LoopOuter").with_sequence_arc("XorInner"),
+        );
+        nodes.insert(
+            "XorInner".to_string(),
+            TTNode::control("XorInner", ControlType::Xor, Some("B_loop".to_string()))
+                .with_operations(vec![Operation::new("x", OperationType::Read)])
+                .with_branch_arc(vec!["B_then".to_string(), "B_else".to_string()]),
+        );
+        nodes.insert(
+            "B_then".to_string(),
+            TTNode::block("B_then", "XorInner").with_sequence_arc("ActThen"),
+        );
+        nodes.insert(
+            "ActThen".to_string(),
+            TTNode::activity("ActThen", "B_then")
+                .with_operations(vec![Operation::new("local", OperationType::Write)]),
+        );
+        nodes.insert(
+            "B_else".to_string(),
+            TTNode::block("B_else", "XorInner").with_sequence_arc("ActElse"),
+        );
+        nodes.insert(
+            "ActElse".to_string(),
+            TTNode::activity("ActElse", "B_else")
+                .with_operations(vec![Operation::new("x", OperationType::Kill)]),
+        );
+
+        nodes.insert(
+            "B_right".to_string(),
+            TTNode::block("B_right", "AndRoot").with_sequence_arc("AndNested"),
+        );
+        nodes.insert(
+            "AndNested".to_string(),
+            TTNode::control("AndNested", ControlType::And, Some("B_right".to_string()))
+                .with_branch_arc(vec!["B_read".to_string(), "B_kill".to_string()]),
+        );
+        nodes.insert(
+            "B_read".to_string(),
+            TTNode::block("B_read", "AndNested").with_sequence_arc("ActRead"),
+        );
+        nodes.insert(
+            "ActRead".to_string(),
+            TTNode::activity("ActRead", "B_read")
+                .with_operations(vec![Operation::new("x", OperationType::Read)]),
+        );
+        nodes.insert(
+            "B_kill".to_string(),
+            TTNode::block("B_kill", "AndNested").with_sequence_arc("ActKill"),
+        );
+        nodes.insert(
+            "ActKill".to_string(),
+            TTNode::activity("ActKill", "B_kill")
+                .with_operations(vec![Operation::new("x", OperationType::Kill)]),
+        );
+
+        TTGraph::new(nodes)
     }
 
     fn assert_d_opn(

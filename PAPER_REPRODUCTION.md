@@ -98,8 +98,10 @@ The tests lock down:
   Program 1 graph.
 - Program 2 insertion results.
 - Algorithm 1 / Algorithm 2 equivalence.
+- Nested AND/XOR/LOOP summary propagation against direct scan.
 - Deletion extension behavior.
-- JSON export of nodes, `d_OPN_set`, and CCA sets after insertion.
+- JSON export of nodes, `d_OPN_set`, and CCA sets after insertion, including a
+  golden fixture regression test.
 
 Known paper issues handled by this reproduction:
 

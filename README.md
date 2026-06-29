@@ -82,9 +82,11 @@ Current implemented scope:
 - pseudo-code reconstruction of the paper's Program 1 from `examples/program1.pseudo`
 - deletion support as a prototype extension
 - `d_OPN_set` strategy and direct scan baseline
+- nested AND/XOR/LOOP correctness tests against direct scan
 - synthetic full binary AND benchmark
 - Graphviz DOT export
 - JSON artifact export for graph summaries and CCA sets
+- golden JSON fixture coverage for exporter regressions
 - CSV benchmark export
 
 See `PAPER_REPRODUCTION.md` for the reproduction protocol and known paper
