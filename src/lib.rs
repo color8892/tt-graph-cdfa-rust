@@ -252,11 +252,11 @@ impl TTGraph {
                 self.remove_d_opn(&current_id, variable, op, tnode_id);
                 summary_blocks_updated.push(current_id.clone());
 
-                if let Some(parent_id) = self.nodes[&current_id].scope_arc.clone() {
-                    if self.is_and_control(&parent_id) {
-                        self.recompute_and_cca_sets(&parent_id);
-                        touched_and_nodes.push(parent_id);
-                    }
+                if let Some(parent_id) = self.nodes[&current_id].scope_arc.clone()
+                    && self.is_and_control(&parent_id)
+                {
+                    self.recompute_and_cca_sets(&parent_id);
+                    touched_and_nodes.push(parent_id);
                 }
             }
         }
@@ -296,18 +296,14 @@ impl TTGraph {
                 self.add_d_opn(&current_id, variable, op, tnode_id);
                 summary_blocks_updated.push(current_id.clone());
 
-                if let Some(parent_id) = self.nodes[&current_id].scope_arc.clone() {
-                    if self.is_and_control(&parent_id) {
-                        touched_and_nodes.push(parent_id.clone());
-                        for entry in self.detect_using_d_opn_set(
-                            &parent_id,
-                            &current_id,
-                            variable,
-                            op,
-                            tnode_id,
-                        ) {
-                            entries.insert(entry);
-                        }
+                if let Some(parent_id) = self.nodes[&current_id].scope_arc.clone()
+                    && self.is_and_control(&parent_id)
+                {
+                    touched_and_nodes.push(parent_id.clone());
+                    for entry in
+                        self.detect_using_d_opn_set(&parent_id, &current_id, variable, op, tnode_id)
+                    {
+                        entries.insert(entry);
                     }
                 }
             }
@@ -343,20 +339,15 @@ impl TTGraph {
             };
 
             current_id = scope_id;
-            if self.nodes[&current_id].node_type == NodeType::Block {
-                if let Some(parent_id) = self.nodes[&current_id].scope_arc.clone() {
-                    if self.is_and_control(&parent_id) {
-                        touched_and_nodes.push(parent_id.clone());
-                        for entry in self.detect_by_direct_scan(
-                            &parent_id,
-                            &current_id,
-                            variable,
-                            op,
-                            tnode_id,
-                        ) {
-                            entries.insert(entry);
-                        }
-                    }
+            if self.nodes[&current_id].node_type == NodeType::Block
+                && let Some(parent_id) = self.nodes[&current_id].scope_arc.clone()
+                && self.is_and_control(&parent_id)
+            {
+                touched_and_nodes.push(parent_id.clone());
+                for entry in
+                    self.detect_by_direct_scan(&parent_id, &current_id, variable, op, tnode_id)
+                {
+                    entries.insert(entry);
                 }
             }
         }
@@ -872,7 +863,7 @@ pub fn build_synthetic_full_and_graph(depth: usize, matching_stride: usize) -> S
                         format!("noise_{}", self.leaf_index % 11),
                         OperationType::Read,
                     )];
-                    if self.leaf_index % self.matching_stride == 0 {
+                    if self.leaf_index.is_multiple_of(self.matching_stride) {
                         operations.push(Operation::new("target", OperationType::Read));
                         self.matching_leaf_count += 1;
                     }

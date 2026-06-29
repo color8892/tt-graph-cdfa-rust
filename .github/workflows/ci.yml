@@ -26,6 +26,11 @@ jobs:
       - name: Run tests
         run: cargo test --all --locked
 
+      - name: Run Clippy
+        run: cargo clippy --all-targets
+        env:
+          RUSTFLAGS: "-D warnings"
+
       - name: Run paper reproduction smoke test
         run: cargo run --quiet -- paper
 

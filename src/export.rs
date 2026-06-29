@@ -3,6 +3,7 @@ use crate::{CcaEntry, CcaType, ControlType, NodeType, Operation, OperationType, 
 pub fn graph_to_json(graph: &TTGraph) -> String {
     let mut output = String::new();
     output.push_str("{\n");
+    output.push_str("  \"schema_version\": 1,\n");
     output.push_str("  \"nodes\": ");
     push_nodes_json(&mut output, graph);
     output.push_str(",\n");

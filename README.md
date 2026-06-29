@@ -108,3 +108,5 @@ Current implemented scope:
 
 See `PAPER_REPRODUCTION.md` for the reproduction protocol and known paper
 typos/ambiguities handled by the implementation.
+
+See `docs/artifact-schema.md` for the JSON artifact schema.

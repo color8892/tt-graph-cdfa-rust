@@ -120,6 +120,7 @@ The tests lock down:
 - Deletion extension behavior.
 - JSON export of nodes, `d_OPN_set`, and CCA sets after insertion, including a
   golden fixture regression test.
+- Versioned JSON artifact schema in `docs/artifact-schema.md`.
 
 Known paper issues handled by this reproduction:
 
