@@ -40,7 +40,7 @@ fn push_nodes_json(output: &mut String, graph: &TTGraph) {
             true,
         );
         output.push_str("      \"operation_sequence\": ");
-        push_operations_json(output, &sorted_operations(&node.operation_sequence));
+        push_operations_json(output, &sorted_operations(&node.operations));
         output.push_str(",\n");
         push_json_field(
             output,

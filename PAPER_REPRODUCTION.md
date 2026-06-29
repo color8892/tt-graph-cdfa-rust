@@ -15,6 +15,44 @@ Run the parser-based reproduction from the toy input file:
 cargo run -- parse examples/program1.tt
 ```
 
+Run the C++ Clang reproduction of Program 1:
+
+```powershell
+cargo run -- cpp examples/program1.cpp
+```
+
+Run the implicit C++ reproduction (no OpenMP / `#pragma tt` / `tt_print`):
+
+```powershell
+cargo run -- cpp-implicit examples/program1_plain.cpp
+```
+
+Reproduce paper figures and extra tables:
+
+```powershell
+cargo run -- figure4
+cargo run -- table5
+cargo run --release -- bench-corpus
+```
+
+Run generic C++ analysis with an insertion:
+
+```powershell
+cargo run -- analyze-cpp examples/program1.cpp insert Act2 v Write
+```
+
+Run the C-like subset reproduction of Program 1:
+
+```powershell
+cargo run -- c examples/program1.c
+```
+
+Run generic C subset analysis with an insertion:
+
+```powershell
+cargo run -- analyze-c examples/program1.c insert Act2 v Write
+```
+
 Run the pseudo-code reproduction closer to Program 1:
 
 ```powershell
@@ -56,6 +94,53 @@ and And1 {
 `ops { ... }` on `loop` and `xor` models control-condition operations that the
 paper includes in `d_OPN_set`, such as `Loop1` reading `i` and `Xor1` reading
 `v`.
+
+C++ syntax (`examples/program1.cpp`) is parsed by libclang. Parallel AND
+structure is inferred from OpenMP `#pragma omp parallel sections` / `#pragma omp
+section` regions (no `#pragma tt` required). Each section body is recovered from
+source text when libclang exposes the OpenMP region as an opaque AST node, then
+re-parsed for CFG extraction. Dataflow operations use helper calls
+`tt_print(...)` / `tt_kill(...)` plus normal assignment / `while` / `if` AST
+nodes.
+
+```cpp
+void program1() {
+#pragma omp parallel sections
+  {
+#pragma omp section
+    { tt_print(v); v = 10; while (i < 20) { ... } }
+#pragma omp section
+    { tt_print(v); v = 1000; if (v % 2 == 0) { ... } else { ... } }
+  }
+}
+```
+
+Legacy `#pragma tt parallel` / `#pragma tt branch` scaffolding
+(`examples/program1_pragma.cpp`) remains supported for older inputs.
+
+C-like subset syntax (`examples/program1.c`) supports:
+
+```c
+parallel And1 {
+  branch B1 {
+    print(v);
+    v = 10;
+    while (i < 20) { ... }
+  }
+  branch B2 {
+    if (v % 2 == 0) { ... } else { ... }
+  }
+}
+```
+
+`parallel` / `branch` are TT Graph extensions (not ISO C). Statements map to
+operations the same way as the pseudo parser:
+
+- `print(expr)` -> `Read` on identifiers in `expr`
+- `kill(var)` -> `Kill(var)`
+- `lhs = expr` -> `Read` on identifiers in `expr`, then `Write(lhs)`
+- `while (cond)` -> LOOP control with `Read` on identifiers in `cond`
+- `if (cond) { ... } else { ... }` -> XOR control
 
 Pseudo syntax currently supports a line-oriented subset:
 
@@ -110,6 +195,10 @@ The tests lock down:
 - Table 2 `d_OPN_set` contents.
 - Parser output for `examples/program1.tt` against the hardcoded Program 1
   graph.
+- C++ Clang parser output for `examples/program1.cpp` against the hardcoded
+  Program 1 graph.
+- C subset parser output for `examples/program1.c` against the hardcoded Program 1
+  graph.
 - Pseudo parser output for `examples/program1.pseudo` against the hardcoded
   Program 1 graph.
 - Program 2 insertion results.
@@ -121,6 +210,7 @@ The tests lock down:
 - JSON export of nodes, `d_OPN_set`, and CCA sets after insertion, including a
   golden fixture regression test.
 - Versioned JSON artifact schema in `docs/artifact-schema.md`.
+- Figure/Table/Algorithm mapping in `docs/paper-mapping.md`.
 
 Known paper issues handled by this reproduction:
 
@@ -136,8 +226,16 @@ Known paper issues handled by this reproduction:
 
 Out of scope for the current reproduction:
 
-- Parsing real programming languages into TT Graphs. The current pseudo parser
-  is intentionally scoped to Program 1 style inputs.
+- Parsing arbitrary C++ without OpenMP parallel-section markers or
+  `tt_print` / `tt_kill` hooks. The Clang frontend still needs explicit
+  concurrency scaffolding (OpenMP sections or legacy `#pragma tt`) plus
+  dataflow helper calls.
+- Parsing full ISO C without extensions. The `c_frontend` remains a C-like
+  subset with explicit `parallel` / `branch` regions.
+- Parsing real programming languages without TT Graph annotations. The pseudo
+  parser remains intentionally scoped to Program 1 style inputs.
 - IDE / SDE integration.
 - Persistence beyond plain JSON / DOT / CSV artifacts.
 - A faithful reimplementation of the paper's exact formatting errors.
+
+See `docs/paper-mapping.md` for the full artifact index and explicit gap list.

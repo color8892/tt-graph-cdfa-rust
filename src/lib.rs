@@ -1,6 +1,14 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
 
+pub mod bench;
+pub mod bench_corpus;
+pub mod builder;
+pub mod c_frontend;
+#[cfg(feature = "clang")]
+pub mod clang_frontend;
 pub mod export;
+pub mod figures;
+pub mod format_helper;
 pub mod pseudo;
 pub mod toy;
 
@@ -74,7 +82,7 @@ pub struct TTNode {
     pub node_id: String,
     pub node_type: NodeType,
     pub control_type: Option<ControlType>,
-    pub operation_sequence: HashSet<Operation>,
+    pub operations: HashSet<Operation>,
     pub sequence_arc: Option<String>,
     pub branch_arc: Vec<String>,
     pub scope_arc: Option<String>,
@@ -119,7 +127,7 @@ impl TTNode {
             node_id: node_id.into(),
             node_type,
             control_type,
-            operation_sequence: HashSet::new(),
+            operations: HashSet::new(),
             sequence_arc: None,
             branch_arc: Vec::new(),
             scope_arc,
@@ -129,7 +137,7 @@ impl TTNode {
     }
 
     pub fn with_operations(mut self, operations: Vec<Operation>) -> Self {
-        self.operation_sequence = operations.into_iter().collect();
+        self.operations = operations.into_iter().collect();
         self
     }
 
@@ -184,6 +192,7 @@ pub struct DeletionResult {
 #[derive(Clone, Debug)]
 pub struct TTGraph {
     pub nodes: HashMap<String, TTNode>,
+    children_index: HashMap<String, Vec<String>>,
 }
 
 impl TTGraph {
@@ -192,12 +201,33 @@ impl TTGraph {
             node.d_opn_set.clear();
         }
 
-        let mut graph = Self { nodes };
+        let mut children_index: HashMap<String, Vec<String>> = HashMap::new();
+        for node in nodes.values() {
+            if let Some(scope) = &node.scope_arc {
+                children_index
+                    .entry(scope.clone())
+                    .or_default()
+                    .push(node.node_id.clone());
+            }
+        }
+
+        let mut graph = Self {
+            nodes,
+            children_index,
+        };
         graph.rebuild_all_d_opn_sets();
         graph.recompute_all_cca_sets();
         graph
     }
 
+    /// Inserts a data-flow operation into a node and runs both summary and direct scan
+    /// detection strategies, verifying that the results are identical.
+    ///
+    /// # Preconditions
+    /// The target node must exist in the graph.
+    ///
+    /// # Panics
+    /// Panics if `tnode_id` is not present in the graph.
     pub fn insert_operation(
         &mut self,
         tnode_id: &str,
@@ -216,6 +246,14 @@ impl TTGraph {
         }
     }
 
+    /// Deletes a data-flow operation from a node and propagates the deletion
+    /// up the scope hierarchy, updating summaries and recomputing CCA sets.
+    ///
+    /// # Preconditions
+    /// The target node must exist in the graph.
+    ///
+    /// # Panics
+    /// Panics if `tnode_id` is not present in the graph.
     pub fn delete_operation(
         &mut self,
         tnode_id: &str,
@@ -226,7 +264,7 @@ impl TTGraph {
             .nodes
             .get_mut(tnode_id)
             .expect("TNode must exist")
-            .operation_sequence
+            .operations
             .remove(&Operation::new(variable, op));
 
         if !removed_operation {
@@ -268,6 +306,14 @@ impl TTGraph {
         }
     }
 
+    /// Inserts a data-flow operation into a node using only the summary-based
+    /// strategy (Algorithm 1) which incrementally updates `d_OPN_set` summaries.
+    ///
+    /// # Preconditions
+    /// The target node must exist in the graph.
+    ///
+    /// # Panics
+    /// Panics if `tnode_id` is not present in the graph.
     pub fn insert_operation_summary_only(
         &mut self,
         tnode_id: &str,
@@ -277,7 +323,7 @@ impl TTGraph {
         self.nodes
             .get_mut(tnode_id)
             .expect("TNode must exist")
-            .operation_sequence
+            .operations
             .insert(Operation::new(variable, op));
 
         let mut entries = BTreeSet::new();
@@ -316,6 +362,14 @@ impl TTGraph {
         }
     }
 
+    /// Inserts a data-flow operation into a node using only the direct scan
+    /// strategy (Algorithm 2) which searches sibling subgraphs directly.
+    ///
+    /// # Preconditions
+    /// The target node must exist in the graph.
+    ///
+    /// # Panics
+    /// Panics if `tnode_id` is not present in the graph.
     pub fn insert_operation_direct_only(
         &mut self,
         tnode_id: &str,
@@ -325,7 +379,7 @@ impl TTGraph {
         self.nodes
             .get_mut(tnode_id)
             .expect("TNode must exist")
-            .operation_sequence
+            .operations
             .insert(Operation::new(variable, op));
 
         let mut entries = BTreeSet::new();
@@ -373,11 +427,8 @@ impl TTGraph {
 
         for block_id in block_ids {
             for node_id in self.reachable_nop_nodes(&block_id) {
-                let operations: Vec<Operation> = self.nodes[&node_id]
-                    .operation_sequence
-                    .iter()
-                    .cloned()
-                    .collect();
+                let operations: Vec<Operation> =
+                    self.nodes[&node_id].operations.iter().cloned().collect();
                 for operation in operations {
                     self.add_d_opn(&block_id, &operation.variable, operation.op, &node_id);
                 }
@@ -402,14 +453,17 @@ impl TTGraph {
 
     pub fn reachable_nop_nodes(&self, block_id: &str) -> BTreeSet<String> {
         let mut result = BTreeSet::new();
-        for node in self.nodes.values() {
-            if node.scope_arc.as_deref() == Some(block_id) && node.node_type != NodeType::Block {
-                if node.is_nop_node() {
-                    result.insert(node.node_id.clone());
-                }
-                if node.node_type == NodeType::Control {
-                    for child_block_id in &node.branch_arc {
-                        result.extend(self.reachable_nop_nodes(child_block_id));
+        if let Some(children) = self.children_index.get(block_id) {
+            for child_id in children {
+                let node = &self.nodes[child_id];
+                if node.node_type != NodeType::Block {
+                    if node.is_nop_node() {
+                        result.insert(child_id.clone());
+                    }
+                    if node.node_type == NodeType::Control {
+                        for child_block_id in &node.branch_arc {
+                            result.extend(self.reachable_nop_nodes(child_block_id));
+                        }
                     }
                 }
             }
@@ -552,7 +606,7 @@ impl TTGraph {
             for other_node_id in self.reachable_nop_nodes(&other_block_id) {
                 for (other_op, cca_type) in related_operations(op) {
                     if self.nodes[&other_node_id]
-                        .operation_sequence
+                        .operations
                         .contains(&Operation::new(variable, other_op))
                     {
                         entries.push(self.record_cca(
@@ -617,12 +671,12 @@ impl TTGraph {
                 for left_node_id in &left_nodes {
                     for right_node_id in &right_nodes {
                         let left_operations: Vec<Operation> = self.nodes[left_node_id]
-                            .operation_sequence
+                            .operations
                             .iter()
                             .cloned()
                             .collect();
                         let right_operations: Vec<Operation> = self.nodes[right_node_id]
-                            .operation_sequence
+                            .operations
                             .iter()
                             .cloned()
                             .collect();
@@ -775,7 +829,13 @@ pub fn normalize_cca_entry(
                 other_node_id
             },
         ),
-        CcaType::WriteWrite => CcaEntry::new(variable, new_node_id, other_node_id),
+        CcaType::WriteWrite => {
+            if new_node_id <= other_node_id {
+                CcaEntry::new(variable, new_node_id, other_node_id)
+            } else {
+                CcaEntry::new(variable, other_node_id, new_node_id)
+            }
+        }
     }
 }
 
@@ -791,12 +851,12 @@ fn node_type_label(node: &TTNode) -> String {
 }
 
 fn operation_label(node: &TTNode) -> String {
-    if node.operation_sequence.is_empty() {
+    if node.operations.is_empty() {
         return String::new();
     }
 
     let mut operations: Vec<String> = node
-        .operation_sequence
+        .operations
         .iter()
         .map(|operation| format!("{}:{:?}", operation.variable, operation.op))
         .collect();
@@ -907,6 +967,107 @@ pub fn build_synthetic_full_and_graph(depth: usize, matching_stride: usize) -> S
         matching_stride,
     };
     builder.build_and(1, None, "Root");
+
+    let node_count = builder.nodes.len();
+    SyntheticGraphCase {
+        graph: TTGraph::new(builder.nodes),
+        target_node_id: builder.target_node_id,
+        node_count,
+        leaf_count: builder.leaf_index,
+        matching_leaf_count: builder.matching_leaf_count,
+    }
+}
+
+pub fn build_chain_and_graph(depth: usize, matching_stride: usize) -> SyntheticGraphCase {
+    assert!(depth >= 1, "depth must be >= 1");
+    assert!(matching_stride >= 1, "matching_stride must be >= 1");
+
+    struct Builder {
+        nodes: HashMap<String, TTNode>,
+        leaf_index: usize,
+        matching_leaf_count: usize,
+        target_node_id: String,
+        depth: usize,
+        matching_stride: usize,
+    }
+
+    impl Builder {
+        fn build_chain(
+            &mut self,
+            level: usize,
+            scope_block_id: Option<String>,
+            prefix: &str,
+        ) -> String {
+            let and_id = format!("AndC_{prefix}");
+            self.nodes.insert(
+                and_id.clone(),
+                TTNode::control(and_id.clone(), ControlType::And, scope_block_id),
+            );
+
+            let left_block = format!("BC_{prefix}_L");
+            let right_block = format!("BC_{prefix}_R");
+            self.nodes.insert(
+                left_block.clone(),
+                TTNode::block(left_block.clone(), and_id.clone()),
+            );
+            self.nodes.insert(
+                right_block.clone(),
+                TTNode::block(right_block.clone(), and_id.clone()),
+            );
+
+            if level < self.depth {
+                let child_and =
+                    self.build_chain(level + 1, Some(left_block.clone()), &format!("{prefix}L"));
+                self.nodes
+                    .get_mut(&left_block)
+                    .expect("left block exists")
+                    .sequence_arc = Some(child_and);
+            } else {
+                self.attach_leaf(&left_block, true);
+            }
+
+            self.attach_leaf(&right_block, false);
+            self.nodes.get_mut(&and_id).expect("AND exists").branch_arc =
+                vec![left_block, right_block];
+            and_id
+        }
+
+        fn attach_leaf(&mut self, block_id: &str, is_target_branch: bool) {
+            self.leaf_index += 1;
+            let act_id = format!("ActC_{:05}", self.leaf_index);
+            if is_target_branch && self.target_node_id.is_empty() {
+                self.target_node_id = act_id.clone();
+            }
+
+            let mut operations = vec![Operation::new(
+                format!("noise_{}", self.leaf_index),
+                OperationType::Read,
+            )];
+            if self.leaf_index.is_multiple_of(self.matching_stride) {
+                operations.push(Operation::new("target", OperationType::Read));
+                self.matching_leaf_count += 1;
+            }
+
+            self.nodes.insert(
+                act_id.clone(),
+                TTNode::activity(act_id.clone(), block_id.to_string()).with_operations(operations),
+            );
+            self.nodes
+                .get_mut(block_id)
+                .expect("block exists")
+                .sequence_arc = Some(act_id);
+        }
+    }
+
+    let mut builder = Builder {
+        nodes: HashMap::new(),
+        leaf_index: 0,
+        matching_leaf_count: 0,
+        target_node_id: String::new(),
+        depth,
+        matching_stride,
+    };
+    builder.build_chain(1, None, "Root");
 
     let node_count = builder.nodes.len();
     SyntheticGraphCase {
@@ -1151,7 +1312,7 @@ mod tests {
         );
         assert!(
             !graph.nodes["Act2"]
-                .operation_sequence
+                .operations
                 .contains(&Operation::new("v", OperationType::Write))
         );
         assert!(

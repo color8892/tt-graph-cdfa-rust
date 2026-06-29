@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use crate::{ControlType, Operation, OperationType, TTGraph, TTNode};
 
 pub fn parse_toy_program(source: &str) -> Result<TTGraph, String> {
@@ -7,8 +5,8 @@ pub fn parse_toy_program(source: &str) -> Result<TTGraph, String> {
     let mut parser = Parser::new(tokens);
     let root_id = parser.parse_control(None)?;
     parser.expect_end()?;
-    if parser.nodes.contains_key(&root_id) {
-        Ok(TTGraph::new(parser.nodes))
+    if parser.builder.nodes.contains_key(&root_id) {
+        Ok(TTGraph::new(parser.builder.nodes))
     } else {
         Err("parser did not produce a root control node".to_string())
     }
@@ -18,7 +16,7 @@ pub fn parse_toy_program(source: &str) -> Result<TTGraph, String> {
 struct Parser {
     tokens: Vec<String>,
     position: usize,
-    nodes: HashMap<String, TTNode>,
+    builder: crate::builder::GraphBuilder,
 }
 
 impl Parser {
@@ -26,7 +24,7 @@ impl Parser {
         Self {
             tokens,
             position: 0,
-            nodes: HashMap::new(),
+            builder: crate::builder::GraphBuilder::new(),
         }
     }
 
@@ -47,7 +45,7 @@ impl Parser {
     ) -> Result<String, String> {
         let control_id = self.next_identifier("control id")?;
         let operations = self.parse_optional_operations()?;
-        self.insert_unique_node(
+        self.builder.insert_unique_node(
             control_id.clone(),
             TTNode::control(control_id.clone(), control_type, scope_block_id)
                 .with_operations(operations),
@@ -59,7 +57,7 @@ impl Parser {
             self.expect("branch")?;
             let block_id = self.next_identifier("branch block id")?;
             branch_ids.push(block_id.clone());
-            self.insert_unique_node(
+            self.builder.insert_unique_node(
                 block_id.clone(),
                 TTNode::block(block_id.clone(), control_id.clone()),
             )?;
@@ -72,7 +70,8 @@ impl Parser {
             return Err(format!("{control_id} must contain at least one branch"));
         }
 
-        self.nodes
+        self.builder
+            .nodes
             .get_mut(&control_id)
             .expect("control node exists")
             .branch_arc = branch_ids;
@@ -85,13 +84,13 @@ impl Parser {
         self.expect("body")?;
         let block_id = self.next_identifier("loop body block id")?;
 
-        self.insert_unique_node(
+        self.builder.insert_unique_node(
             control_id.clone(),
             TTNode::control(control_id.clone(), ControlType::Loop, scope_block_id)
                 .with_operations(operations)
                 .with_branch_arc(vec![block_id.clone()]),
         )?;
-        self.insert_unique_node(
+        self.builder.insert_unique_node(
             block_id.clone(),
             TTNode::block(block_id.clone(), control_id.clone()),
         )?;
@@ -116,18 +115,8 @@ impl Parser {
                 None => return Err(format!("unclosed block {block_id}")),
             };
 
-            if let Some(previous_item_id) = previous_item_id {
-                self.nodes
-                    .get_mut(&previous_item_id)
-                    .expect("previous item exists")
-                    .sequence_arc = Some(item_id.clone());
-            } else {
-                self.nodes
-                    .get_mut(block_id)
-                    .expect("block node exists")
-                    .sequence_arc = Some(item_id.clone());
-            }
-            previous_item_id = Some(item_id);
+            self.builder
+                .link_item(block_id, &mut previous_item_id, &item_id);
         }
         Ok(())
     }
@@ -137,7 +126,7 @@ impl Parser {
         let activity_id = self.next_identifier("activity id")?;
         let operations = self.parse_required_operations()?;
 
-        self.insert_unique_node(
+        self.builder.insert_unique_node(
             activity_id.clone(),
             TTNode::activity(activity_id.clone(), block_id.to_string()).with_operations(operations),
         )?;
@@ -168,14 +157,6 @@ impl Parser {
             operations.push(Operation::new(variable, op));
         }
         Ok(operations)
-    }
-
-    fn insert_unique_node(&mut self, node_id: String, node: TTNode) -> Result<(), String> {
-        if self.nodes.contains_key(&node_id) {
-            return Err(format!("duplicate node id `{node_id}`"));
-        }
-        self.nodes.insert(node_id, node);
-        Ok(())
     }
 
     fn expect_end(&self) -> Result<(), String> {

@@ -1,57 +1,73 @@
 # Benchmark Notes
 
-This benchmark compares two insertion-time detection strategies:
+This crate compares two insertion-time detection strategies:
 
-- `d_OPN_set`: query maintained per-BLOCK operation summaries.
-- direct scan: traverse reachable nodes in sibling BLOCK subgraphs.
+- `d_OPN_set`: query maintained per-BLOCK operation summaries (Algorithm 1).
+- direct scan: traverse reachable nodes in sibling BLOCK subgraphs (Algorithm 2).
 
-The benchmark generates synthetic full binary AND graphs, inserts
-`Write(target)` into the leftmost activity node, and reports whether both
-strategies produce the same CCA set.
+The paper gives **complexity** (Table 5) but **no empirical timing table**. These
+benchmarks supplement the paper with reproducible measurements in this repo.
 
-Command:
+## Quick commands
 
 ```powershell
+# Original synthetic full-binary AND benchmark
 cargo run --release -- bench
-```
-
-CSV artifact command:
-
-```powershell
 cargo run --quiet --release -- bench-csv > benchmark.csv
+
+# Expanded corpus (paper graph, figure6 depths, chain AND, plain C++)
+cargo run --release -- bench-corpus
+cargo run --quiet --release -- bench-corpus --csv > corpus.csv
+
+# Table 5 theory + empirical figure6 trend
+cargo run --release -- bench-paper-table5
 ```
 
-Latest local result:
+## Corpus cases (`bench-corpus`)
+
+| case_id | Source | Insertion |
+|---------|--------|-----------|
+| `paper_program1` | `build_paper_example_graph()` | `Write(v)` into `Act2` |
+| `figure6_depth_{4,6,8,10,12}` | Full binary AND tree | `Write(target)` into leftmost leaf |
+| `chain_and_depth_{4,6,8,10,12}` | Left-spine AND chain | `Write(target)` into deepest-left leaf |
+| `plain_cpp` | `examples/program1_plain.cpp` (implicit parser) | `Write(v)` into `Act2` |
+
+CSV columns:
+
+`case_id,node_count,leaf_count,matching_leaf_count,summary_us,direct_us,speedup,match`
+
+## Original synthetic benchmark
+
+Parameters:
+
+- Depths: 4, 6, 8
+- Iterations: 20
+- Matching stride: 16
+- Insertion: `Write(target)` into leftmost leaf activity
+
+Sample local results:
 
 ```text
-iterations=20, matching_stride=16, insertion=Write(target)
-
-depth  nodes  leaves  target reads  CCA  d_OPN_set us  direct us  x faster  match
-    4     61      16             1    1          11.5       30.0       2.6   true
-    6    253      64             4    4          28.5      194.4       6.8   true
-    8   1021     256            16   16          59.5     2907.4      48.9   true
+depth  nodes  leaves  summary_us  direct_us  speedup  match
+    4     61      16        11.5       30.0      2.6   true
+    6    253      64        28.5      194.4      6.8   true
+    8   1021     256        59.5     2907.4     48.9   true
 ```
 
-Interpretation:
+## Interpretation
 
-The benchmark supports the paper's main intuition: when the graph is large but
-the edited variable is sparse, `d_OPN_set` avoids scanning large sibling
-subtrees. The speedup grows with graph depth in this setup.
+When the graph is large but the edited variable is sparse, `d_OPN_set` avoids
+scanning large sibling subtrees. Speedup grows with depth in this setup.
 
-Complexity note:
-
-The paper's simplified `O(log n)` claim is best read as a sparse-output binary
-tree case. A more precise insertion cost is:
+Precise cost (repo form):
 
 ```text
 O(h * b + k)
 ```
 
-Where:
+- `h` — ancestor scopes via `scopeArc`
+- `b` — sibling BLOCK branches at each AND
+- `k` — emitted CCA entries
 
-- `h` is the number of ancestor scopes visited through `scopeArc`
-- `b` is the number of sibling BLOCK nodes checked at each AND node
-- `k` is the number of matching nodes / generated CCA entries
-
-The output term matters because any implementation must at least materialize
-the anomalies it reports.
+Timed sections measure **insertion detection only**; graph construction and
+cloning are excluded.

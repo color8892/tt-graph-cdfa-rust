@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use crate::{ControlType, Operation, OperationType, TTGraph, TTNode};
 
 pub fn parse_pseudo_program(source: &str) -> Result<TTGraph, String> {
@@ -7,15 +5,14 @@ pub fn parse_pseudo_program(source: &str) -> Result<TTGraph, String> {
     let mut parser = Parser::new(lines);
     parser.parse_split(None)?;
     parser.expect_end()?;
-    Ok(TTGraph::new(parser.nodes))
+    Ok(TTGraph::new(parser.builder.nodes))
 }
 
 #[derive(Debug)]
 struct Parser {
     lines: Vec<Vec<String>>,
     position: usize,
-    nodes: HashMap<String, TTNode>,
-    next_activity: usize,
+    builder: crate::builder::GraphBuilder,
 }
 
 impl Parser {
@@ -23,8 +20,7 @@ impl Parser {
         Self {
             lines,
             position: 0,
-            nodes: HashMap::new(),
-            next_activity: 1,
+            builder: crate::builder::GraphBuilder::new(),
         }
     }
 
@@ -35,7 +31,7 @@ impl Parser {
         }
 
         let control_id = line[1].clone();
-        self.insert_unique_node(
+        self.builder.insert_unique_node(
             control_id.clone(),
             TTNode::control(
                 control_id.clone(),
@@ -50,7 +46,8 @@ impl Parser {
             branch_ids.push(branch_id);
         }
 
-        self.nodes
+        self.builder
+            .nodes
             .get_mut(&control_id)
             .expect("AND control exists")
             .branch_arc = branch_ids;
@@ -67,7 +64,7 @@ impl Parser {
         }
 
         let block_id = line[1].clone();
-        self.insert_unique_node(
+        self.builder.insert_unique_node(
             block_id.clone(),
             TTNode::block(block_id.clone(), control_id.to_string()),
         )?;
@@ -98,7 +95,11 @@ impl Parser {
                     continue;
                 }
                 Some("split" | "while" | "if") => {
-                    self.flush_activity(block_id, &mut previous_item_id, &mut pending_operations)?;
+                    self.builder.flush_activity(
+                        block_id,
+                        &mut previous_item_id,
+                        &mut pending_operations,
+                    )?;
                     match self.peek_line().map(|line| line[0].as_str()) {
                         Some("split") => self.parse_split(Some(block_id))?,
                         Some("while") => self.parse_while(block_id)?,
@@ -113,10 +114,12 @@ impl Parser {
                 }
                 None => return Err(format!("unclosed block {block_id}")),
             };
-            self.link_item(block_id, &mut previous_item_id, &item_id);
+            self.builder
+                .link_item(block_id, &mut previous_item_id, &item_id);
         }
 
-        self.flush_activity(block_id, &mut previous_item_id, &mut pending_operations)?;
+        self.builder
+            .flush_activity(block_id, &mut previous_item_id, &mut pending_operations)?;
         Ok(())
     }
 
@@ -129,8 +132,12 @@ impl Parser {
             ));
         }
 
-        let (control_id, condition_tokens, body_block_id) = parse_while_header(&line)?;
-        self.insert_unique_node(
+        let (opt_control_id, condition_tokens, opt_body_block_id) = parse_while_header(&line)?;
+        let (control_id, body_block_id) = match (opt_control_id, opt_body_block_id) {
+            (Some(cid), Some(bid)) => (cid, bid),
+            _ => self.builder.next_loop_names(),
+        };
+        self.builder.insert_unique_node(
             control_id.clone(),
             TTNode::control(
                 control_id.clone(),
@@ -140,7 +147,7 @@ impl Parser {
             .with_operations(condition_read_operations(condition_tokens))
             .with_branch_arc(vec![body_block_id.clone()]),
         )?;
-        self.insert_unique_node(
+        self.builder.insert_unique_node(
             body_block_id.clone(),
             TTNode::block(body_block_id.clone(), control_id.clone()),
         )?;
@@ -158,9 +165,15 @@ impl Parser {
             ));
         }
 
-        let (control_id, condition_tokens, then_block_id, else_block_id) = parse_if_header(&line)?;
+        let (opt_control_id, condition_tokens, opt_then_block_id, opt_else_block_id) =
+            parse_if_header(&line)?;
+        let (control_id, then_block_id, else_block_id) =
+            match (opt_control_id, opt_then_block_id, opt_else_block_id) {
+                (Some(cid), Some(tbid), Some(ebid)) => (cid, tbid, ebid),
+                _ => self.builder.next_xor_names(),
+            };
 
-        self.insert_unique_node(
+        self.builder.insert_unique_node(
             control_id.clone(),
             TTNode::control(
                 control_id.clone(),
@@ -170,14 +183,14 @@ impl Parser {
             .with_operations(condition_read_operations(condition_tokens))
             .with_branch_arc(vec![then_block_id.clone(), else_block_id.clone()]),
         )?;
-        self.insert_unique_node(
+        self.builder.insert_unique_node(
             then_block_id.clone(),
             TTNode::block(then_block_id.clone(), control_id.clone()),
         )?;
         self.parse_block_items(&then_block_id, &["else"])?;
         self.expect_line(&["else"])?;
 
-        self.insert_unique_node(
+        self.builder.insert_unique_node(
             else_block_id.clone(),
             TTNode::block(else_block_id.clone(), control_id.clone()),
         )?;
@@ -186,53 +199,9 @@ impl Parser {
         Ok(control_id)
     }
 
-    fn flush_activity(
-        &mut self,
-        block_id: &str,
-        previous_item_id: &mut Option<String>,
-        pending_operations: &mut Vec<Operation>,
-    ) -> Result<(), String> {
-        if pending_operations.is_empty() {
-            return Ok(());
-        }
-
-        let activity_id = format!("Act{}", self.next_activity);
-        self.next_activity += 1;
-        self.insert_unique_node(
-            activity_id.clone(),
-            TTNode::activity(activity_id.clone(), block_id.to_string())
-                .with_operations(std::mem::take(pending_operations)),
-        )?;
-        self.link_item(block_id, previous_item_id, &activity_id);
-        Ok(())
-    }
-
-    fn link_item(&mut self, block_id: &str, previous_item_id: &mut Option<String>, item_id: &str) {
-        if let Some(previous_item_id) = previous_item_id {
-            self.nodes
-                .get_mut(previous_item_id)
-                .expect("previous item exists")
-                .sequence_arc = Some(item_id.to_string());
-        } else {
-            self.nodes
-                .get_mut(block_id)
-                .expect("block exists")
-                .sequence_arc = Some(item_id.to_string());
-        }
-        *previous_item_id = Some(item_id.to_string());
-    }
-
     fn parse_statement_operations(&mut self) -> Result<Vec<Operation>, String> {
         let line = self.next_line()?;
         operations_for_statement(&line)
-    }
-
-    fn insert_unique_node(&mut self, node_id: String, node: TTNode) -> Result<(), String> {
-        if self.nodes.contains_key(&node_id) {
-            return Err(format!("duplicate node id `{node_id}`"));
-        }
-        self.nodes.insert(node_id, node);
-        Ok(())
     }
 
     fn expect_end(&self) -> Result<(), String> {
@@ -327,7 +296,9 @@ fn line_is_any_stop(line: &[String], stop_words: &[&str]) -> bool {
     })
 }
 
-fn parse_while_header(line: &[String]) -> Result<(String, &[String], String), String> {
+fn parse_while_header(
+    line: &[String],
+) -> Result<(Option<String>, &[String], Option<String>), String> {
     if let Some(body_index) = line.iter().position(|token| token == "body") {
         if body_index + 1 >= line.len() {
             return Err(format!(
@@ -336,9 +307,9 @@ fn parse_while_header(line: &[String]) -> Result<(String, &[String], String), St
             ));
         }
         return Ok((
-            line[1].clone(),
+            Some(line[1].clone()),
             &line[2..body_index],
-            line[body_index + 1].clone(),
+            Some(line[body_index + 1].clone()),
         ));
     }
 
@@ -352,10 +323,12 @@ fn parse_while_header(line: &[String]) -> Result<(String, &[String], String), St
             line.join(" ")
         ));
     }
-    Ok(("Loop1".to_string(), &line[1..do_index], "B3".to_string()))
+    Ok((None, &line[1..do_index], None))
 }
 
-fn parse_if_header(line: &[String]) -> Result<(String, &[String], String, String), String> {
+fn parse_if_header(
+    line: &[String],
+) -> Result<(Option<String>, &[String], Option<String>, Option<String>), String> {
     let then_index = line
         .iter()
         .position(|token| token == "then")
@@ -367,10 +340,10 @@ fn parse_if_header(line: &[String]) -> Result<(String, &[String], String, String
             return Err(format!("invalid if line: `{}`", line.join(" ")));
         }
         return Ok((
-            line[1].clone(),
+            Some(line[1].clone()),
             &line[2..then_index],
-            line[then_index + 1].clone(),
-            line[else_index + 1].clone(),
+            Some(line[then_index + 1].clone()),
+            Some(line[else_index + 1].clone()),
         ));
     }
 
@@ -380,12 +353,7 @@ fn parse_if_header(line: &[String]) -> Result<(String, &[String], String, String
             line.join(" ")
         ));
     }
-    Ok((
-        "Xor1".to_string(),
-        &line[1..then_index],
-        "B4".to_string(),
-        "B5".to_string(),
-    ))
+    Ok((None, &line[1..then_index], None, None))
 }
 
 fn operations_for_statement(line: &[String]) -> Result<Vec<Operation>, String> {
