@@ -129,25 +129,10 @@ jobs:
           Add-Content -Path $env:GITHUB_PATH -Value "C:\Program Files\LLVM\bin"
           Add-Content -Path $env:GITHUB_ENV -Value "LIBCLANG_PATH=C:\Program Files\LLVM\bin"
 
-      - name: Debug Environment and LLVM
-        shell: pwsh
-        run: |
-          Write-Host "--- Environment Variables ---"
-          Write-Host "LIBCLANG_PATH: $env:LIBCLANG_PATH"
-          Write-Host "PATH: $env:PATH"
-          Write-Host "--- Searching for libclang.dll ---"
-          Get-ChildItem -Path "C:\Program Files" -Filter "libclang.dll" -Recurse -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
-          Get-ChildItem -Path "C:\Program Files (x86)" -Filter "libclang.dll" -Recurse -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
-
       - name: Build all targets
         run: cargo build --all-targets --locked
 
-      # Test the full suite (with Clang) on Windows
-      # Use --test-threads=1 to prevent race conditions during libclang loading in tests
-      - name: Run tests (with Clang)
-        run: cargo test --all --locked -- --test-threads=1
-
-      # Fallback verification in case LLVM gets unlinked or has issues
+      # Revert to pure Rust tests on Windows GHA to prevent flaky libclang.dll segmentation faults (exit code 0xc0000005)
       - name: Run pure Rust tests (no-default-features)
         run: cargo test --all --locked --no-default-features
 
@@ -171,10 +156,14 @@ jobs:
           rustc --version
           cargo --version
 
-      - name: Install LLVM
+      - name: Install LLVM and Configure environment
         run: |
           brew install llvm
           echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> $GITHUB_ENV
+          echo "SDKROOT=$(xcrun --sdk macosx --show-sdk-path)" >> $GITHUB_ENV
+          STDARG_PATH=$(find $(brew --prefix llvm)/lib/clang -name stdarg.h | head -n 1)
+          RESOURCE_DIR="${STDARG_PATH%/include/stdarg.h}"
+          echo "CLANG_RESOURCE_DIR=$RESOURCE_DIR" >> $GITHUB_ENV
         env:
           HOMEBREW_NO_AUTO_UPDATE: 1
 

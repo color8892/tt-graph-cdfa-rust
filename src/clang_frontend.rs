@@ -28,12 +28,35 @@ pub fn parse_cpp_implicit_source(display_path: &str, source: &str) -> Result<TTG
     })?;
     let index = Index::new(&clang, false, false);
     let unsaved = Unsaved::new(display_path, source);
+    let mut args = vec![
+        "-std=c++17".to_string(),
+        "-x".to_string(),
+        "c++".to_string(),
+        "-O0".to_string(),
+    ];
+    if let Ok(path) = std::env::var("SDKROOT") {
+        args.push("-isysroot".to_string());
+        args.push(path);
+    }
+    if let Ok(path) = std::env::var("CLANG_RESOURCE_DIR") {
+        args.push("-resource-dir".to_string());
+        args.push(path);
+    }
+    let args_ref: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
     let translation_unit = index
         .parser(display_path)
         .unsaved(&[unsaved])
-        .arguments(&["-std=c++17", "-x", "c++", "-O0"])
+        .arguments(&args_ref)
         .parse()
         .map_err(|error| format!("clang failed to parse `{display_path}`: {error:?}"))?;
+
+    for diag in translation_unit.get_diagnostics() {
+        eprintln!(
+            "Clang Diagnostic: [{:?}] {}",
+            diag.get_severity(),
+            diag.get_text()
+        );
+    }
 
     let mut builder = GraphBuilder::new();
     let root = translation_unit.get_entity();
@@ -60,12 +83,36 @@ pub fn parse_cpp_source(display_path: &str, source: &str) -> Result<TTGraph, Str
     })?;
     let index = Index::new(&clang, false, false);
     let unsaved = Unsaved::new(display_path, source);
+    let mut args = vec![
+        "-std=c++17".to_string(),
+        "-x".to_string(),
+        "c++".to_string(),
+        "-fopenmp".to_string(),
+        "-O0".to_string(),
+    ];
+    if let Ok(path) = std::env::var("SDKROOT") {
+        args.push("-isysroot".to_string());
+        args.push(path);
+    }
+    if let Ok(path) = std::env::var("CLANG_RESOURCE_DIR") {
+        args.push("-resource-dir".to_string());
+        args.push(path);
+    }
+    let args_ref: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
     let translation_unit = index
         .parser(display_path)
         .unsaved(&[unsaved])
-        .arguments(&["-std=c++17", "-x", "c++", "-fopenmp", "-O0"])
+        .arguments(&args_ref)
         .parse()
         .map_err(|error| format!("clang failed to parse `{display_path}`: {error:?}"))?;
+
+    for diag in translation_unit.get_diagnostics() {
+        eprintln!(
+            "Clang Diagnostic: [{:?}] {}",
+            diag.get_severity(),
+            diag.get_text()
+        );
+    }
 
     let mut builder = GraphBuilder::new();
     if tt_pragmas.parallel_id.is_some() {
@@ -213,8 +260,7 @@ fn collect_std_thread_workers_recursive<'tu>(
     workers: &mut Vec<(usize, String)>,
 ) {
     if is_std_thread_construct(entity)
-        && let Some(worker_name) = thread_worker_name(entity)
-        && defined_functions.contains(&worker_name)
+        && let Some(worker_name) = thread_worker_name(entity, defined_functions)
         && let Some(line) = entity_line(entity)
     {
         workers.push((line, worker_name));
@@ -225,44 +271,46 @@ fn collect_std_thread_workers_recursive<'tu>(
 }
 
 fn is_std_thread_construct(entity: &Entity<'_>) -> bool {
-    let display = entity
-        .get_display_name()
-        .or_else(|| entity.get_type().map(|ty| ty.get_display_name()))
-        .unwrap_or_default();
-    display.contains("thread")
+    if let Some(name) = entity.get_display_name() {
+        if name.contains("thread") {
+            return true;
+        }
+    }
+    if let Some(ty) = entity.get_type() {
+        let ty_name = ty.get_display_name();
+        if ty_name.contains("thread") {
+            return true;
+        }
+    }
+    false
 }
 
-fn thread_worker_name(entity: &Entity<'_>) -> Option<String> {
-    if let Some(name) = thread_worker_from_children(entity) {
+fn thread_worker_name(entity: &Entity<'_>, defined_functions: &HashSet<String>) -> Option<String> {
+    if let Some(name) = find_worker_in_subtree(entity, defined_functions) {
         return Some(name);
     }
     entity
         .get_lexical_parent()
-        .and_then(|parent| thread_worker_from_children(&parent))
+        .and_then(|parent| find_worker_in_subtree(&parent, defined_functions))
 }
 
-fn thread_worker_from_children(entity: &Entity<'_>) -> Option<String> {
+fn find_worker_in_subtree(
+    entity: &Entity<'_>,
+    defined_functions: &HashSet<String>,
+) -> Option<String> {
+    if entity.get_kind() == EntityKind::DeclRefExpr {
+        if let Some(name) = entity.get_name() {
+            if defined_functions.contains(&name) {
+                return Some(name);
+            }
+        }
+    }
     for child in entity.get_children() {
-        if let Some(name) = function_name_from_thread_arg(&child) {
+        if let Some(name) = find_worker_in_subtree(&child, defined_functions) {
             return Some(name);
         }
     }
     None
-}
-
-fn function_name_from_thread_arg(entity: &Entity<'_>) -> Option<String> {
-    match entity.get_kind() {
-        EntityKind::DeclRefExpr => entity.get_name(),
-        EntityKind::UnaryOperator | EntityKind::ParenExpr | EntityKind::CStyleCastExpr => entity
-            .get_children()
-            .into_iter()
-            .find_map(|child| function_name_from_thread_arg(&child)),
-        EntityKind::UnexposedExpr | EntityKind::UnexposedStmt => entity
-            .get_children()
-            .into_iter()
-            .find_map(|child| function_name_from_thread_arg(&child)),
-        _ => None,
-    }
 }
 
 fn build_from_openmp_sections<'tu>(
@@ -904,7 +952,11 @@ fn operations_from_statement(stmt: &Entity<'_>) -> Result<Option<Vec<Operation>>
         | EntityKind::ReturnStmt
         | EntityKind::VarDecl
         | EntityKind::ParmDecl
-        | EntityKind::DeclRefExpr => Ok(Some(Vec::new())),
+        | EntityKind::DeclRefExpr
+        | EntityKind::FunctionDecl
+        | EntityKind::TypedefDecl
+        | EntityKind::StructDecl
+        | EntityKind::ClassDecl => Ok(Some(Vec::new())),
         EntityKind::OmpSectionDirective | EntityKind::OmpParallelSectionsDirective => {
             Ok(Some(Vec::new()))
         }
