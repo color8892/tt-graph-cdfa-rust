@@ -124,10 +124,20 @@ jobs:
         run: choco install llvm -y
 
       - name: Configure libclang
-        shell: bash
+        shell: pwsh
         run: |
-          echo "C:\Program Files\LLVM\bin" >> $GITHUB_PATH
-          echo "LIBCLANG_PATH=C:\Program Files\LLVM\bin" >> $GITHUB_ENV
+          Add-Content -Path $env:GITHUB_PATH -Value "C:\Program Files\LLVM\bin"
+          Add-Content -Path $env:GITHUB_ENV -Value "LIBCLANG_PATH=C:\Program Files\LLVM\bin"
+
+      - name: Debug Environment and LLVM
+        shell: pwsh
+        run: |
+          Write-Host "--- Environment Variables ---"
+          Write-Host "LIBCLANG_PATH: $env:LIBCLANG_PATH"
+          Write-Host "PATH: $env:PATH"
+          Write-Host "--- Searching for libclang.dll ---"
+          Get-ChildItem -Path "C:\Program Files" -Filter "libclang.dll" -Recurse -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
+          Get-ChildItem -Path "C:\Program Files (x86)" -Filter "libclang.dll" -Recurse -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
 
       - name: Build all targets
         run: cargo build --all-targets --locked
