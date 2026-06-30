@@ -150,3 +150,36 @@ jobs:
       # Fallback verification in case LLVM gets unlinked or has issues
       - name: Run pure Rust tests (no-default-features)
         run: cargo test --all --locked --no-default-features
+
+  macos:
+    name: macOS build and tests
+    runs-on: macos-latest
+    needs: security_audit
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Show toolchain
+        run: |
+          rustc --version
+          cargo --version
+
+      - name: Install LLVM
+        run: |
+          brew install llvm
+          echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> $GITHUB_ENV
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: 1
+
+      - name: Build all targets
+        run: cargo build --all-targets --locked
+
+      - name: Run tests
+        run: cargo test --all --locked
