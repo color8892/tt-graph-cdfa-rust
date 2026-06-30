@@ -2,8 +2,8 @@ use std::env;
 use std::fs;
 use std::io::{self, Write};
 use tt_graph_cdfa_rust::{
-    bench, format_helper, build_paper_example_graph, export::graph_to_json,
-    ControlType, NodeType, OperationType,
+    ControlType, NodeType, OperationType, bench, build_paper_example_graph, export::graph_to_json,
+    format_helper,
 };
 
 const BOLD: &str = "\x1b[1m";
@@ -35,6 +35,7 @@ fn main() {
         Some("delete-demo") => run_delete_demo(),
         Some("dot") => run_dot(),
         Some("export-json") => run_export_json(args.get(2).map(String::as_str)),
+        Some("export-paper-json") => run_export_paper_json(args.get(2).map(String::as_str)),
         Some("paper") => run_paper_reproduction(),
         Some("c") => run_c(args.get(2).map(String::as_str)),
         Some("cpp") => run_cpp(args.get(2).map(String::as_str)),
@@ -66,6 +67,7 @@ fn main() {
             eprintln!("       cargo run -- parse examples/program1.tt");
             eprintln!("       cargo run -- pseudo examples/program1.pseudo");
             eprintln!("       cargo run -- export-json examples/program1.cpp");
+            eprintln!("       cargo run -- export-paper-json examples/program1.cpp");
             eprintln!("usage: cargo run -- demo");
             eprintln!("       cargo run -- delete-demo");
             eprintln!("       cargo run -- dot");
@@ -174,7 +176,17 @@ fn run_analyze_source(
 
 fn run_export_json(path: Option<&str>) {
     let path = path.unwrap_or("examples/program1.cpp");
+    let graph = parse_source_graph(path);
+    print!("{}", graph_to_json(&graph));
+}
+
+fn run_export_paper_json(path: Option<&str>) {
+    let path = path.unwrap_or("examples/program1.cpp");
     let mut graph = parse_source_graph(path);
+    if !format_helper::is_paper_program_1_graph(&graph) {
+        eprintln!("export-paper-json expects a Program 1 style graph containing Act2");
+        std::process::exit(1);
+    }
     graph.insert_operation("Act2", "v", OperationType::Write);
     print!("{}", graph_to_json(&graph));
 }
@@ -487,7 +499,9 @@ fn run_interactive() {
 
         // Print header
         println!("{BOLD}{CYAN}=== TT Graph CDFA - SDE Simulator ==={RESET}");
-        println!("{DIM}Simulate incremental variable operations edits and trace concurrency anomalies live.{RESET}\n");
+        println!(
+            "{DIM}Simulate incremental variable operations edits and trace concurrency anomalies live.{RESET}\n"
+        );
 
         // Render Graph ASCII Tree
         println!("{BOLD}1. Current TT Graph Structure:{RESET}");
@@ -508,7 +522,9 @@ fn run_interactive() {
                         OperationType::Write => YELLOW,
                         OperationType::Kill => RED,
                     };
-                    println!("    d_OPN_set({var}, {op_color}{op:?}{RESET}) = {GREEN}{nodes:?}{RESET}");
+                    println!(
+                        "    d_OPN_set({var}, {op_color}{op:?}{RESET}) = {GREEN}{nodes:?}{RESET}"
+                    );
                 }
             }
         }
@@ -517,16 +533,23 @@ fn run_interactive() {
         // Render anomalies on And1
         println!("{BOLD}3. Stored Anomalies (on And1):{RESET}");
         if let Some(and_node) = graph.nodes.get("And1") {
-            let mut cca_types: Vec<tt_graph_cdfa_rust::CcaType> = and_node.cca_sets.keys().copied().collect();
+            let mut cca_types: Vec<tt_graph_cdfa_rust::CcaType> =
+                and_node.cca_sets.keys().copied().collect();
             cca_types.sort();
             for cca_type in cca_types {
                 let entries = &and_node.cca_sets[&cca_type];
                 let mut rendered = Vec::new();
                 for entry in entries {
-                    rendered.push(format!("({}, {}, {})", entry.variable, entry.first_node, entry.second_node));
+                    rendered.push(format!(
+                        "({}, {}, {})",
+                        entry.variable, entry.first_node, entry.second_node
+                    ));
                 }
                 rendered.sort();
-                println!("  {RED}{BOLD}{cca_type:?}{RESET}: {RED}{:?}{RESET}", rendered);
+                println!(
+                    "  {RED}{BOLD}{cca_type:?}{RESET}: {RED}{:?}{RESET}",
+                    rendered
+                );
             }
         } else {
             println!("  {DIM}<No And1 control node in graph>{RESET}");
@@ -538,14 +561,20 @@ fn run_interactive() {
         if let Some(ref info) = last_action_info {
             println!("{info}");
         } else {
-            println!("  {DIM}No action performed yet. Choose an option below to modify the graph.{RESET}");
+            println!(
+                "  {DIM}No action performed yet. Choose an option below to modify the graph.{RESET}"
+            );
         }
         println!();
 
         // Render shortcuts
         println!("{BOLD}Shortcuts & Commands:{RESET}");
-        println!("  {GREEN}[1]{RESET} Insert {YELLOW}Write(v){RESET} into {GREEN}Act2{RESET}  (Paper Program 2 example)");
-        println!("  {GREEN}[2]{RESET} Insert {GREEN}Read(i){RESET} into {GREEN}Act4{RESET}   (Extra edge case)");
+        println!(
+            "  {GREEN}[1]{RESET} Insert {YELLOW}Write(v){RESET} into {GREEN}Act2{RESET}  (Paper Program 2 example)"
+        );
+        println!(
+            "  {GREEN}[2]{RESET} Insert {GREEN}Read(i){RESET} into {GREEN}Act4{RESET}   (Extra edge case)"
+        );
         println!("  {GREEN}[3]{RESET} Delete {YELLOW}Write(v){RESET} from {GREEN}Act2{RESET}");
         println!("  {GREEN}[r]{RESET} Reset graph to initial state");
         println!("  {GREEN}[q]{RESET} Quit simulator");
@@ -571,13 +600,20 @@ fn run_interactive() {
 
         if choice == "r" || choice == "reset" {
             graph = build_paper_example_graph();
-            last_action_info = Some(format!("  {GREEN}Graph reset to initial Program 1 state.{RESET}"));
+            last_action_info = Some(format!(
+                "  {GREEN}Graph reset to initial Program 1 state.{RESET}"
+            ));
             continue;
         }
 
         if choice == "1" {
             let res = graph.insert_operation("Act2", "v", OperationType::Write);
-            last_action_info = Some(format_insert_result("Act2", "v", OperationType::Write, &res));
+            last_action_info = Some(format_insert_result(
+                "Act2",
+                "v",
+                OperationType::Write,
+                &res,
+            ));
             continue;
         }
 
@@ -589,7 +625,12 @@ fn run_interactive() {
 
         if choice == "3" {
             let res = graph.delete_operation("Act2", "v", OperationType::Write);
-            last_action_info = Some(format_delete_result("Act2", "v", OperationType::Write, &res));
+            last_action_info = Some(format_delete_result(
+                "Act2",
+                "v",
+                OperationType::Write,
+                &res,
+            ));
             continue;
         }
 
@@ -599,14 +640,19 @@ fn run_interactive() {
             let node_id = tokens[1];
             let variable = tokens[2];
             if !graph.nodes.contains_key(node_id) {
-                last_action_info = Some(format!("  {RED}Error: Node `{node_id}` not found in graph.{RESET}"));
+                last_action_info = Some(format!(
+                    "  {RED}Error: Node `{node_id}` not found in graph.{RESET}"
+                ));
                 continue;
             }
             if let Some(op) = parse_operation_type(tokens[3]) {
                 let res = graph.insert_operation(node_id, variable, op);
                 last_action_info = Some(format_insert_result(node_id, variable, op, &res));
             } else {
-                last_action_info = Some(format!("  {RED}Error: Unknown operation type `{}`. Use read, write, or kill.{RESET}", tokens[3]));
+                last_action_info = Some(format!(
+                    "  {RED}Error: Unknown operation type `{}`. Use read, write, or kill.{RESET}",
+                    tokens[3]
+                ));
             }
             continue;
         }
@@ -615,19 +661,26 @@ fn run_interactive() {
             let node_id = tokens[1];
             let variable = tokens[2];
             if !graph.nodes.contains_key(node_id) {
-                last_action_info = Some(format!("  {RED}Error: Node `{node_id}` not found in graph.{RESET}"));
+                last_action_info = Some(format!(
+                    "  {RED}Error: Node `{node_id}` not found in graph.{RESET}"
+                ));
                 continue;
             }
             if let Some(op) = parse_operation_type(tokens[3]) {
                 let res = graph.delete_operation(node_id, variable, op);
                 last_action_info = Some(format_delete_result(node_id, variable, op, &res));
             } else {
-                last_action_info = Some(format!("  {RED}Error: Unknown operation type `{}`. Use read, write, or kill.{RESET}", tokens[3]));
+                last_action_info = Some(format!(
+                    "  {RED}Error: Unknown operation type `{}`. Use read, write, or kill.{RESET}",
+                    tokens[3]
+                ));
             }
             continue;
         }
 
-        last_action_info = Some(format!("  {RED}Error: Unknown command `{choice}`. Check help/shortcuts.{RESET}"));
+        last_action_info = Some(format!(
+            "  {RED}Error: Unknown command `{choice}`. Check help/shortcuts.{RESET}"
+        ));
     }
 }
 
@@ -635,7 +688,8 @@ fn format_ops(operations: &std::collections::HashSet<tt_graph_cdfa_rust::Operati
     if operations.is_empty() {
         return String::new();
     }
-    let mut ops: Vec<String> = operations.iter()
+    let mut ops: Vec<String> = operations
+        .iter()
         .map(|op| {
             let color = match op.op {
                 OperationType::Read => GREEN,
@@ -646,12 +700,17 @@ fn format_ops(operations: &std::collections::HashSet<tt_graph_cdfa_rust::Operati
         })
         .collect();
     ops.sort();
-    format!("{DIM}[{RESET}{}{DIM}]{RESET}", ops.join(&format!("{DIM}, {RESET}")))
+    format!(
+        "{DIM}[{RESET}{}{DIM}]{RESET}",
+        ops.join(&format!("{DIM}, {RESET}"))
+    )
 }
 
 fn render_graph_ascii(graph: &tt_graph_cdfa_rust::TTGraph) -> String {
     let mut output = String::new();
-    let mut roots: Vec<String> = graph.nodes.values()
+    let mut roots: Vec<String> = graph
+        .nodes
+        .values()
         .filter(|node| node.scope_arc.is_none())
         .map(|node| node.node_id.clone())
         .collect();
@@ -664,7 +723,13 @@ fn render_graph_ascii(graph: &tt_graph_cdfa_rust::TTGraph) -> String {
     output
 }
 
-fn render_node(graph: &tt_graph_cdfa_rust::TTGraph, node_id: &str, prefix: &str, is_last: bool, output: &mut String) {
+fn render_node(
+    graph: &tt_graph_cdfa_rust::TTGraph,
+    node_id: &str,
+    prefix: &str,
+    is_last: bool,
+    output: &mut String,
+) {
     let node = &graph.nodes[node_id];
     let marker = format!("{DIM}{}{RESET}", if is_last { "└── " } else { "├── " });
     let child_prefix = if is_last { "    " } else { "│   " };
@@ -672,7 +737,9 @@ fn render_node(graph: &tt_graph_cdfa_rust::TTGraph, node_id: &str, prefix: &str,
     match node.node_type {
         NodeType::Activity => {
             let ops_str = format_ops(&node.operations);
-            output.push_str(&format!("{prefix}{marker}{GREEN}{node_id}{RESET} {ops_str}\n"));
+            output.push_str(&format!(
+                "{prefix}{marker}{GREEN}{node_id}{RESET} {ops_str}\n"
+            ));
         }
         NodeType::Control => {
             let kind_str = match node.control_type {
@@ -682,8 +749,10 @@ fn render_node(graph: &tt_graph_cdfa_rust::TTGraph, node_id: &str, prefix: &str,
                 None => String::new(),
             };
             let ops_str = format_ops(&node.operations);
-            output.push_str(&format!("{prefix}{marker}{YELLOW}{node_id}{RESET} {kind_str} {ops_str}\n"));
-            
+            output.push_str(&format!(
+                "{prefix}{marker}{YELLOW}{node_id}{RESET} {kind_str} {ops_str}\n"
+            ));
+
             let num_branches = node.branch_arc.len();
             for (idx, branch_id) in node.branch_arc.iter().enumerate() {
                 let branch_is_last = idx == num_branches - 1;
@@ -710,7 +779,12 @@ fn render_node(graph: &tt_graph_cdfa_rust::TTGraph, node_id: &str, prefix: &str,
     }
 }
 
-fn format_insert_result(node_id: &str, variable: &str, op: OperationType, res: &tt_graph_cdfa_rust::DetectionResult) -> String {
+fn format_insert_result(
+    node_id: &str,
+    variable: &str,
+    op: OperationType,
+    res: &tt_graph_cdfa_rust::DetectionResult,
+) -> String {
     let op_color = match op {
         OperationType::Read => GREEN,
         OperationType::Write => YELLOW,
@@ -727,7 +801,10 @@ fn format_insert_result(node_id: &str, variable: &str, op: OperationType, res: &
         summary_lines.push(format!("    {DIM}<none>{RESET}"));
     } else {
         for (cca_type, entry) in &res.summary_entries {
-            summary_lines.push(format!("    {RED}{cca_type:?}{RESET}: ({}, {}, {})", entry.variable, entry.first_node, entry.second_node));
+            summary_lines.push(format!(
+                "    {RED}{cca_type:?}{RESET}: ({}, {}, {})",
+                entry.variable, entry.first_node, entry.second_node
+            ));
         }
     }
 
@@ -737,11 +814,18 @@ fn format_insert_result(node_id: &str, variable: &str, op: OperationType, res: &
            Touched AND nodes: {YELLOW}{:?}{RESET}\n  \
            Updated BLOCK summaries: {CYAN}{:?}{RESET}\n  \
            New anomalies created:\n{}",
-        res.touched_and_nodes, res.summary_blocks_updated, summary_lines.join("\n")
+        res.touched_and_nodes,
+        res.summary_blocks_updated,
+        summary_lines.join("\n")
     )
 }
 
-fn format_delete_result(node_id: &str, variable: &str, op: OperationType, res: &tt_graph_cdfa_rust::DeletionResult) -> String {
+fn format_delete_result(
+    node_id: &str,
+    variable: &str,
+    op: OperationType,
+    res: &tt_graph_cdfa_rust::DeletionResult,
+) -> String {
     let op_color = match op {
         OperationType::Read => GREEN,
         OperationType::Write => YELLOW,

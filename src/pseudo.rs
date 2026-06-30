@@ -132,8 +132,8 @@ impl Parser {
             ));
         }
 
-        let (opt_control_id, condition_tokens, opt_body_block_id) = parse_while_header(&line)?;
-        let (control_id, body_block_id) = match (opt_control_id, opt_body_block_id) {
+        let header = parse_while_header(&line)?;
+        let (control_id, body_block_id) = match (header.control_id, header.body_block_id) {
             (Some(cid), Some(bid)) => (cid, bid),
             _ => self.builder.next_loop_names(),
         };
@@ -144,7 +144,7 @@ impl Parser {
                 ControlType::Loop,
                 Some(scope_block_id.to_string()),
             )
-            .with_operations(condition_read_operations(condition_tokens))
+            .with_operations(condition_read_operations(header.condition_tokens))
             .with_branch_arc(vec![body_block_id.clone()]),
         )?;
         self.builder.insert_unique_node(
@@ -165,13 +165,15 @@ impl Parser {
             ));
         }
 
-        let (opt_control_id, condition_tokens, opt_then_block_id, opt_else_block_id) =
-            parse_if_header(&line)?;
-        let (control_id, then_block_id, else_block_id) =
-            match (opt_control_id, opt_then_block_id, opt_else_block_id) {
-                (Some(cid), Some(tbid), Some(ebid)) => (cid, tbid, ebid),
-                _ => self.builder.next_xor_names(),
-            };
+        let header = parse_if_header(&line)?;
+        let (control_id, then_block_id, else_block_id) = match (
+            header.control_id,
+            header.then_block_id,
+            header.else_block_id,
+        ) {
+            (Some(cid), Some(tbid), Some(ebid)) => (cid, tbid, ebid),
+            _ => self.builder.next_xor_names(),
+        };
 
         self.builder.insert_unique_node(
             control_id.clone(),
@@ -180,7 +182,7 @@ impl Parser {
                 ControlType::Xor,
                 Some(scope_block_id.to_string()),
             )
-            .with_operations(condition_read_operations(condition_tokens))
+            .with_operations(condition_read_operations(header.condition_tokens))
             .with_branch_arc(vec![then_block_id.clone(), else_block_id.clone()]),
         )?;
         self.builder.insert_unique_node(
@@ -296,9 +298,20 @@ fn line_is_any_stop(line: &[String], stop_words: &[&str]) -> bool {
     })
 }
 
-fn parse_while_header(
-    line: &[String],
-) -> Result<(Option<String>, &[String], Option<String>), String> {
+struct WhileHeader<'a> {
+    control_id: Option<String>,
+    condition_tokens: &'a [String],
+    body_block_id: Option<String>,
+}
+
+struct IfHeader<'a> {
+    control_id: Option<String>,
+    condition_tokens: &'a [String],
+    then_block_id: Option<String>,
+    else_block_id: Option<String>,
+}
+
+fn parse_while_header(line: &[String]) -> Result<WhileHeader<'_>, String> {
     if let Some(body_index) = line.iter().position(|token| token == "body") {
         if body_index + 1 >= line.len() {
             return Err(format!(
@@ -306,11 +319,11 @@ fn parse_while_header(
                 line.join(" ")
             ));
         }
-        return Ok((
-            Some(line[1].clone()),
-            &line[2..body_index],
-            Some(line[body_index + 1].clone()),
-        ));
+        return Ok(WhileHeader {
+            control_id: Some(line[1].clone()),
+            condition_tokens: &line[2..body_index],
+            body_block_id: Some(line[body_index + 1].clone()),
+        });
     }
 
     let do_index = line
@@ -323,12 +336,14 @@ fn parse_while_header(
             line.join(" ")
         ));
     }
-    Ok((None, &line[1..do_index], None))
+    Ok(WhileHeader {
+        control_id: None,
+        condition_tokens: &line[1..do_index],
+        body_block_id: None,
+    })
 }
 
-fn parse_if_header(
-    line: &[String],
-) -> Result<(Option<String>, &[String], Option<String>, Option<String>), String> {
+fn parse_if_header(line: &[String]) -> Result<IfHeader<'_>, String> {
     let then_index = line
         .iter()
         .position(|token| token == "then")
@@ -339,12 +354,12 @@ fn parse_if_header(
         {
             return Err(format!("invalid if line: `{}`", line.join(" ")));
         }
-        return Ok((
-            Some(line[1].clone()),
-            &line[2..then_index],
-            Some(line[then_index + 1].clone()),
-            Some(line[else_index + 1].clone()),
-        ));
+        return Ok(IfHeader {
+            control_id: Some(line[1].clone()),
+            condition_tokens: &line[2..then_index],
+            then_block_id: Some(line[then_index + 1].clone()),
+            else_block_id: Some(line[else_index + 1].clone()),
+        });
     }
 
     if then_index <= 1 {
@@ -353,7 +368,12 @@ fn parse_if_header(
             line.join(" ")
         ));
     }
-    Ok((None, &line[1..then_index], None, None))
+    Ok(IfHeader {
+        control_id: None,
+        condition_tokens: &line[1..then_index],
+        then_block_id: None,
+        else_block_id: None,
+    })
 }
 
 fn operations_for_statement(line: &[String]) -> Result<Vec<Operation>, String> {

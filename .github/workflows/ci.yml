@@ -64,5 +64,8 @@ jobs:
       - name: Run JSON export smoke test
         run: cargo run --quiet -- export-json examples/program1.cpp > reproduction.json
 
+      - name: Run paper JSON export smoke test
+        run: cargo run --quiet -- export-paper-json examples/program1.cpp > reproduction-after-insertion.json
+
       - name: Run benchmark CSV smoke test
         run: cargo run --quiet --release -- bench-csv > benchmark.csv

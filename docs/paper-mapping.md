@@ -281,7 +281,7 @@ Insert `Write(v)` into `Act2`.
 | Artifact | Location |
 |----------|----------|
 | Insertion call | `graph.insert_operation("Act2", "v", OperationType::Write)` |
-| JSON export default | `run_export_json` in `src/main.rs` applies Program 2 before export |
+| JSON export after insertion | `run_export_paper_json` in `src/main.rs` applies Program 2 before export |
 
 ---
 
@@ -385,9 +385,11 @@ cargo run -- analyze-pseudo examples/nested_split.pseudo insert Act1 x Write
 
 # Machine-readable artifacts
 cargo run --quiet -- export-json examples/program1.pseudo > reproduction.json
+cargo run --quiet -- export-paper-json examples/program1.pseudo > reproduction-after-insertion.json
 cargo run --release -- bench
 cargo run --quiet --release -- bench-csv > benchmark.csv
 ```
 
-Expected: 27 tests pass (requires libclang for C++ tests); `paper` output shows Algorithm 1 == Algorithm 2;
+Expected: the full test suite passes (requires libclang for C++ tests); `paper` output shows Algorithm 1 == Algorithm 2;
 `export-json` emits `schema_version: 1` per `docs/artifact-schema.md`.
+`export-paper-json` uses the same schema after applying the Program 2 insertion.

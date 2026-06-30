@@ -71,11 +71,16 @@ Run generic pseudo-code analysis with an insertion:
 cargo run -- analyze-pseudo examples/nested_split.pseudo insert Act1 x Write
 ```
 
-Export the parsed reproduction as a JSON artifact after applying the paper's
-Program 2 insertion:
+Export the parsed reproduction as a JSON artifact:
 
 ```powershell
 cargo run --quiet -- export-json examples/program1.pseudo > reproduction.json
+```
+
+Export the parsed reproduction after applying the paper's Program 2 insertion:
+
+```powershell
+cargo run --quiet -- export-paper-json examples/program1.pseudo > reproduction-after-insertion.json
 ```
 
 Toy syntax currently supports:

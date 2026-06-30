@@ -82,10 +82,16 @@ cargo run -- analyze-pseudo examples/nested_split.pseudo insert Act1 x Write
 ```
 
 Export a JSON artifact containing the parsed TT Graph, `d_OPN_set` rows, and
-CCA sets after the Program 2 insertion:
+CCA sets:
 
 ```powershell
 cargo run --quiet -- export-json examples/program1.cpp > reproduction.json
+```
+
+Export a paper Program 2 JSON artifact after inserting `Write(v)` into `Act2`:
+
+```powershell
+cargo run --quiet -- export-paper-json examples/program1.cpp > reproduction-after-insertion.json
 ```
 
 Run the deletion demo:
@@ -134,10 +140,10 @@ Current implemented scope:
 - insertion-only detection from the paper's main algorithm
 - parser-based reconstruction of the paper's Program 1 from `examples/program1.tt`
 - C++ reconstruction via libclang from `examples/program1.cpp` (OpenMP parallel
-  sections → AND; legacy `#pragma tt` still supported)
+  sections to AND; legacy `#pragma tt` still supported)
 - implicit C++ reconstruction from `examples/program1_plain.cpp` (`std::thread` +
   `printf`/`free`, no TT markers) via `cargo run -- cpp-implicit`
-- paper Figure 1/3–6 and Table 1/5/6 CLI (`cargo run -- figure4`, `table5`, …)
+- paper Figure 1/3-6 and Table 1/5/6 CLI (`cargo run -- figure4`, `table5`, etc.)
 - expanded benchmark corpus (`cargo run --release -- bench-corpus`)
 - C-like subset reconstruction of the paper's Program 1 from `examples/program1.c`
 - pseudo-code reconstruction of the paper's Program 1 from `examples/program1.pseudo`
@@ -155,7 +161,7 @@ Current implemented scope:
 See `PAPER_REPRODUCTION.md` for the reproduction protocol and known paper
 typos/ambiguities handled by the implementation.
 
-See `docs/paper-mapping.md` for a Figure/Table/Algorithm → code/test/CLI mapping.
+See `docs/paper-mapping.md` for a Figure/Table/Algorithm to code/test/CLI mapping.
 
 See `docs/artifact-schema.md` for the JSON artifact schema.
 
