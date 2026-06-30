@@ -60,8 +60,8 @@ pub fn parse_cpp_implicit_source(display_path: &str, source: &str) -> Result<TTG
 
     let mut builder = GraphBuilder::new();
     let root = translation_unit.get_entity();
-    if let Some(workers) = collect_std_thread_workers(&root, &root)
-        .or_else(|| collect_std_thread_workers_from_source(source, &root))
+    if let Some(workers) = collect_std_thread_workers_from_source(source, &root)
+        .or_else(|| collect_std_thread_workers(&root, &root))
     {
         build_from_std_thread_workers(&workers, root, &mut builder)?;
     } else {
