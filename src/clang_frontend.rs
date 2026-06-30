@@ -60,7 +60,9 @@ pub fn parse_cpp_implicit_source(display_path: &str, source: &str) -> Result<TTG
 
     let mut builder = GraphBuilder::new();
     let root = translation_unit.get_entity();
-    if let Some(workers) = collect_std_thread_workers(&root, &root) {
+    if let Some(workers) = collect_std_thread_workers(&root, &root)
+        .or_else(|| collect_std_thread_workers_from_source(source, &root))
+    {
         build_from_std_thread_workers(&workers, root, &mut builder)?;
     } else {
         build_from_sequential_entry(root, &mut builder)?;
@@ -271,10 +273,10 @@ fn collect_std_thread_workers_recursive<'tu>(
 }
 
 fn is_std_thread_construct(entity: &Entity<'_>) -> bool {
-    if let Some(name) = entity.get_display_name() {
-        if name.contains("thread") {
-            return true;
-        }
+    if let Some(name) = entity.get_display_name()
+        && name.contains("thread")
+    {
+        return true;
     }
     if let Some(ty) = entity.get_type() {
         let ty_name = ty.get_display_name();
@@ -298,12 +300,11 @@ fn find_worker_in_subtree(
     entity: &Entity<'_>,
     defined_functions: &HashSet<String>,
 ) -> Option<String> {
-    if entity.get_kind() == EntityKind::DeclRefExpr {
-        if let Some(name) = entity.get_name() {
-            if defined_functions.contains(&name) {
-                return Some(name);
-            }
-        }
+    if entity.get_kind() == EntityKind::DeclRefExpr
+        && let Some(name) = entity.get_name()
+        && defined_functions.contains(&name)
+    {
+        return Some(name);
     }
     for child in entity.get_children() {
         if let Some(name) = find_worker_in_subtree(&child, defined_functions) {
@@ -311,6 +312,52 @@ fn find_worker_in_subtree(
         }
     }
     None
+}
+
+fn collect_std_thread_workers_from_source(
+    source: &str,
+    root: &Entity<'_>,
+) -> Option<Vec<(usize, String)>> {
+    let defined_functions: HashSet<String> = collect_function_definitions(*root)
+        .into_iter()
+        .filter_map(|function| function.entity.get_name())
+        .collect();
+    let mut workers = Vec::new();
+
+    for (index, line) in source.lines().enumerate() {
+        let trimmed = line.split("//").next().unwrap_or("").trim();
+        if !(trimmed.contains("std::thread") || trimmed.starts_with("thread ")) {
+            continue;
+        }
+        let Some(worker_name) = thread_worker_from_source_line(trimmed, &defined_functions) else {
+            continue;
+        };
+        workers.push((index + 1, worker_name));
+    }
+
+    if workers.is_empty() {
+        return None;
+    }
+    workers.sort_by_key(|(line, _)| *line);
+    workers.dedup_by(|left, right| left.1 == right.1);
+    Some(workers)
+}
+
+fn thread_worker_from_source_line(
+    line: &str,
+    defined_functions: &HashSet<String>,
+) -> Option<String> {
+    let args_start = line.find('(')?;
+    let args_end = line[args_start + 1..].find(')')? + args_start + 1;
+    let first_arg = line[args_start + 1..args_end]
+        .split(',')
+        .next()?
+        .trim()
+        .trim_start_matches('&');
+    let candidate = first_arg.rsplit("::").next().unwrap_or(first_arg).trim();
+    defined_functions
+        .contains(candidate)
+        .then(|| candidate.to_string())
 }
 
 fn build_from_openmp_sections<'tu>(
@@ -1358,6 +1405,20 @@ mod tests {
             return;
         };
         assert!(parsed.nodes.contains_key("And1"));
+    }
+
+    #[test]
+    fn parses_std_thread_worker_from_source_line() {
+        let defined_functions = HashSet::from(["worker_b1".to_string(), "worker_b2".to_string()]);
+
+        assert_eq!(
+            thread_worker_from_source_line("std::thread t1(worker_b1);", &defined_functions),
+            Some("worker_b1".to_string())
+        );
+        assert_eq!(
+            thread_worker_from_source_line("std::thread t2(&worker_b2);", &defined_functions),
+            Some("worker_b2".to_string())
+        );
     }
 
     #[test]
