@@ -124,17 +124,18 @@ jobs:
         run: choco install llvm -y
 
       - name: Configure libclang
-        shell: pwsh
+        shell: bash
         run: |
-          "C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          "LIBCLANG_PATH=C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          echo "C:\Program Files\LLVM\bin" >> $GITHUB_PATH
+          echo "LIBCLANG_PATH=C:\Program Files\LLVM\bin" >> $GITHUB_ENV
 
       - name: Build all targets
         run: cargo build --all-targets --locked
 
       # Test the full suite (with Clang) on Windows
+      # Use --test-threads=1 to prevent race conditions during libclang loading in tests
       - name: Run tests (with Clang)
-        run: cargo test --all --locked
+        run: cargo test --all --locked -- --test-threads=1
 
       # Fallback verification in case LLVM gets unlinked or has issues
       - name: Run pure Rust tests (no-default-features)
