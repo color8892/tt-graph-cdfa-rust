@@ -306,10 +306,8 @@ mod tests {
         let result = graph.insert_operation("Act1", "x", OperationType::Write);
         assert!(result.matches_direct_scan());
 
-        assert_eq!(
-            graph_to_json(&graph),
-            include_str!("../fixtures/tiny_after_insertion.json")
-        );
+        let expected = include_str!("../fixtures/tiny_after_insertion.json").replace("\r\n", "\n");
+        assert_eq!(graph_to_json(&graph), expected);
     }
 
     fn tiny_graph() -> TTGraph {
