@@ -1182,14 +1182,22 @@ fn assignment_operands<'a>(expr: &'a Entity<'a>) -> Result<(Entity<'a>, Entity<'
 }
 
 fn is_assignment_operator(entity: &Entity<'_>) -> bool {
-    entity.get_kind() == EntityKind::BinaryOperator
-        && entity.get_display_name().is_some_and(|name| {
-            name.contains('=')
-                && !name.contains("==")
-                && !name.contains("!=")
-                && !name.contains("<=")
-                && !name.contains(">=")
-        })
+    if entity.get_kind() != EntityKind::BinaryOperator {
+        return false;
+    }
+
+    if let Some(name) = entity.get_display_name() {
+        return name.contains('=')
+            && !name.contains("==")
+            && !name.contains("!=")
+            && !name.contains("<=")
+            && !name.contains(">=");
+    }
+
+    entity
+        .get_child(0)
+        .is_some_and(|lhs| variable_name_from_expr(&lhs).is_some())
+        && entity.get_child(1).is_some()
 }
 
 fn read_operations_from_expr(expr: &Entity<'_>) -> Vec<Operation> {
