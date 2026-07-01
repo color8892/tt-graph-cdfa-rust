@@ -1,0 +1,68 @@
+name: Bug report
+description: Report incorrect behavior, a regression, or a reproducibility problem.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a problem. Please include enough context to reproduce the behavior from a clean checkout.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What went wrong?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      description: Include commands, input files, and feature flags.
+      placeholder: |
+        1. cargo run -- ...
+        2. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include relevant stdout/stderr or JSON snippets.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Commit or version
+      placeholder: "commit SHA, tag, or branch"
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Core algorithm
+        - C++ frontend / libclang
+        - CLI
+        - JSON export / diagnostics
+        - Paper reproduction
+        - Benchmarking
+        - VS Code prototype
+        - Documentation
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Rust version, LLVM/libclang version, and feature flags.
+      placeholder: |
+        OS:
+        rustc --version:
+        cargo --version:
+        LLVM/libclang:
+        Command:

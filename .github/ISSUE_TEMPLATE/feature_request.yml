@@ -1,0 +1,42 @@
+name: Feature request
+description: Suggest a focused improvement to the library, CLI, reproduction flow, or tooling.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What limitation or workflow problem should this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the behavior, command, API, or documentation change you want.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Core algorithm
+        - C++ frontend / libclang
+        - CLI
+        - JSON export / diagnostics
+        - Paper reproduction
+        - Benchmarking
+        - VS Code prototype
+        - Documentation
+  - type: textarea
+    id: compatibility
+    attributes:
+      label: Compatibility notes
+      description: Mention any expected impact on existing commands, JSON schema, examples, or reproduction outputs.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Optional. Mention other designs or workarounds.

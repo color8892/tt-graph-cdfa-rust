@@ -16,14 +16,14 @@ Use it together with:
 | `d_OPN_set` maintenance | Reproduced | `add_d_opn`, `remove_d_opn`, `rebuild_all_d_opn_sets` |
 | Algorithm 1 (summary detection) | Reproduced | `insert_operation_summary_only`, `detect_using_d_opn_set` |
 | Algorithm 2 (direct scan) | Reproduced | `insert_operation_direct_only`, `detect_by_direct_scan` |
-| Program 1 / Figure 2 | Reproduced | Hardcoded + toy + pseudo inputs |
+| Program 1 / Figure 2 | Reproduced | Hardcoded + C++ inputs |
 | Program 2 insertion | Reproduced | `Write(v)` into `Act2` |
 | Tables 2–4 | Reproduced | Locked by unit tests and `cargo run -- paper` |
 | Table 1 / 5 / 6 | Reproduced | `cargo run -- table1|table5|table6` |
 | Figure 1 / 3–6 | Reproduced | `cargo run -- figure1|figure3|figure4|figure5|figure6` |
 | Performance experiment | Partial | `bench`, `bench-corpus` (paper has no empirical timings) |
-| Language frontend | Partial | OpenMP / `#pragma tt` / **implicit `std::thread`** (`cpp-implicit`) |
-| IDE / SDE integration | Not reproduced | CLI + library only |
+| Language frontend | Partial | OpenMP / **implicit `std::thread`** (`cpp-implicit`) |
+| IDE / SDE integration | Reproduced | CLI + VS Code extension prototype |
 
 ---
 
@@ -47,31 +47,25 @@ activity nodes `Act1`–`Act5`.
 | Artifact | Location |
 |----------|----------|
 | Hardcoded graph | `build_paper_example_graph()` in `src/lib.rs` |
-| Toy-language input | `examples/program1.tt` → `toy::parse_toy_program` in `src/toy.rs` |
-| C++ Clang input (OpenMP) | `examples/program1.cpp` → `clang_frontend::parse_cpp_file` |
-| C++ implicit input | `examples/program1_plain.cpp` → `clang_frontend::parse_cpp_implicit_file` |
-| C-like subset input | `examples/program1.c` → `c_frontend::parse_c_program` in `src/c_frontend.rs` |
-| Pseudo-language input | `examples/program1.pseudo` → `pseudo::parse_pseudo_program` in `src/pseudo.rs` |
+| C++ Clang input (OpenMP) | `examples/paper_program1/program1.cpp` → `clang_frontend::parse_cpp_file` |
+| C++ implicit input | `examples/paper_program1/program1_plain.cpp` → `clang_frontend::parse_cpp_implicit_file` |
 | Graphviz export | `TTGraph::to_dot()` in `src/lib.rs`; CLI: `cargo run -- dot` |
-| JSON export | `export::graph_to_json` in `src/export.rs`; CLI: `cargo run -- export-json examples/program1.pseudo` |
+| JSON export | `export::graph_to_json` in `src/export.rs`; CLI: `cargo run -- export-json examples/paper_program1/program1.cpp` |
 
 **Tests**
 
 | Test | File | What it checks |
 |------|------|----------------|
 | `paper_table_2_d_opn_sets_match_program_1` | `src/lib.rs` | Hardcoded graph matches Table 2 |
-| `parses_program_1_into_matching_d_opn_sets` | `src/toy.rs` | Toy parser → same `d_OPN_set` as hardcoded |
 | `parses_program1_cpp_into_matching_d_opn_sets` | `src/clang_frontend.rs` | C++ Clang parser → same `d_OPN_set` as hardcoded |
 | `parses_program1_plain_cpp_into_matching_d_opn_sets` | `src/clang_frontend.rs` | Implicit C++ (`std::thread`) → same `d_OPN_set` |
-| `parses_program1_c_into_matching_d_opn_sets` | `src/c_frontend.rs` | C subset parser → same `d_OPN_set` as hardcoded |
-| `parses_paper_pseudo_into_matching_d_opn_sets` | `src/pseudo.rs` | Pseudo parser → same `d_OPN_set` as hardcoded |
 
 **CLI**
 
 ```powershell
 cargo run -- paper          # prints Figure 2 context before Program 2
-cargo run -- parse examples/program1.tt
-cargo run -- pseudo examples/program1.pseudo
+cargo run -- cpp examples/paper_program1/program1.cpp
+cargo run -- cpp-implicit examples/paper_program1/program1_plain.cpp
 cargo run -- dot > tt_graph.dot
 ```
 
@@ -94,16 +88,13 @@ Per-BLOCK summary records before Program 2 insertion.
 | Test | File |
 |------|------|
 | `paper_table_2_d_opn_sets_match_program_1` | `src/lib.rs` |
-| `parses_program_1_into_matching_d_opn_sets` | `src/toy.rs` |
-| `parses_program1_c_into_matching_d_opn_sets` | `src/c_frontend.rs` |
-| `parses_paper_pseudo_into_matching_d_opn_sets` | `src/pseudo.rs` |
+| `parses_program1_cpp_into_matching_d_opn_sets` | `src/clang_frontend.rs` |
 
 **CLI**
 
 ```powershell
 cargo run -- paper
-cargo run -- pseudo examples/program1.pseudo
-cargo run -- parse examples/program1.tt
+cargo run -- cpp examples/paper_program1/program1.cpp
 ```
 
 ---
@@ -137,8 +128,7 @@ Locked by `paper_write_insertion_matches_direct_scan` in `src/lib.rs`:
 | Test | File |
 |------|------|
 | `paper_write_insertion_matches_direct_scan` | `src/lib.rs` |
-| `parsed_pseudo_reproduces_program_2_insertion` | `src/pseudo.rs` |
-| `parsed_program_reproduces_program_2_insertion` | `src/toy.rs` |
+| `parses_nested_compound_statement_without_orphans` | `src/clang_frontend.rs` |
 | `exports_nodes_d_opn_sets_and_cca_sets` | `src/export.rs` |
 | `tiny_graph_after_insertion_matches_golden_json_fixture` | `src/export.rs` |
 
@@ -169,8 +159,7 @@ After Program 2, `d_OPN_set(v, Write, B1) = {Act1, Act2}`.
 | Test | File | Assertion |
 |------|------|-----------|
 | `paper_write_insertion_matches_direct_scan` | `src/lib.rs` | B1 Write row = `{Act1, Act2}` |
-| `parsed_pseudo_reproduces_program_2_insertion` | `src/pseudo.rs` | Same via pseudo parser |
-| `parsed_program_reproduces_program_2_insertion` | `src/toy.rs` | Same via toy parser |
+| `parsed_program1_cpp_reproduces_program_2_insertion` | `src/clang_frontend.rs` | Same via C++ parser |
 
 **CLI**
 
@@ -204,13 +193,12 @@ CCAs at ancestor AND nodes using maintained `d_OPN_set` records.
 | `read_insertion_keeps_write_read_tuple_order` | `src/lib.rs` |
 | `synthetic_graph_summary_matches_direct_scan` | `src/lib.rs` |
 | `nested_loop_xor_and_graph_summary_matches_direct_scan` | `src/lib.rs` |
-| `parses_nested_split_inside_branch` | `src/pseudo.rs` |
 
 **CLI**
 
 ```powershell
 cargo run -- paper
-cargo run -- analyze-pseudo examples/nested_split.pseudo insert Act1 x Write
+cargo run -- analyze-cpp examples/paper_program1/program1.cpp insert Act2 v Write
 ```
 
 ---
@@ -237,8 +225,6 @@ Same as Algorithm 1 — every insertion test asserts
 ```powershell
 cargo run -- paper    # prints both Algorithm 1 and Algorithm 2 results
 ```
-
----
 
 ### Supporting definitions (paper terminology → code)
 
@@ -267,12 +253,7 @@ Paper's initial running example (Figure 2, Table 2).
 | Input form | Path | Parser |
 |------------|------|--------|
 | Hardcoded | — | `build_paper_example_graph()` |
-| Toy DSL | `examples/program1.tt` | `toy::parse_toy_program` |
-| C-like subset | `examples/program1.c` | `c_frontend::parse_c_program` |
-| Pseudo code | `examples/program1.pseudo` | `pseudo::parse_pseudo_program` |
-
-Activity grouping in the pseudo parser (`Act1`, `Act2`, …) follows the paper's
-Figure 2 consecutive-statement grouping.
+| C++ Clang (OpenMP) | `examples/paper_program1/program1.cpp` | `clang_frontend::parse_cpp_file` |
 
 ### Program 2
 
@@ -280,7 +261,7 @@ Insert `Write(v)` into `Act2`.
 
 | Artifact | Location |
 |----------|----------|
-| Insertion call | `graph.insert_operation("Act2", "v", OperationType::Write)` |
+| Next step | `graph.insert_operation("Act2", "v", OperationType::Write)` |
 | JSON export after insertion | `run_export_paper_json` in `src/main.rs` applies Program 2 before export |
 
 ---
@@ -335,7 +316,6 @@ These are implemented but not part of the original paper's core contribution.
 | Feature | Location | Tests |
 |---------|----------|-------|
 | Deletion of inserted operations | `delete_operation` in `src/lib.rs` | `delete_inserted_operation_updates_summaries_and_cca_sets`, `deleting_missing_operation_is_noop` |
-| Nested split/branch/join pseudo syntax | `src/pseudo.rs` | `parses_nested_split_inside_branch`, `rejects_duplicate_nested_split_ids` |
 | Nested LOOP/XOR/AND correctness | `build_nested_control_flow_graph` in `src/lib.rs` tests | `nested_loop_xor_and_graph_summary_matches_direct_scan` |
 | JSON artifact export | `src/export.rs` | `exports_*`, golden fixture test |
 | Graphviz DOT export | `TTGraph::to_dot` | manual via `cargo run -- dot` |
@@ -347,11 +327,10 @@ These are implemented but not part of the original paper's core contribution.
 These items are called out in `PAPER_REPRODUCTION.md` as out of scope. No
 paper Figure/Table/Algorithm maps to them yet.
 
-| Gap | Why it matters | Suggested future work |
-|-----|----------------|----------------------|
+| Gap | Current C++ Support | Future |
+|-----|--------------------|--------|
 | Implicit parallel from arbitrary C++ | `cpp-implicit` supports `std::thread` + printf/assign/free only | pthread, `std::async`, CFG-only inference |
-| Full ISO C without extensions | `c_frontend` still uses `parallel`/`branch` keywords | Standard C parser only |
-| IDE / SDE integration | Paper motivates incremental detection in development | Editor plugin, LSP, file watcher |
+| IDE / SDE integration | VS Code prototype in `vscode-extension` | Editor plugin, LSP, file watcher |
 | Large real-world benchmark corpus | Paper has no timing table; repo corpus is synthetic + Program 1 | Linux-kernel-scale programs, published CSV |
 | Production-grade validation | Library APIs use `expect` on invalid input | `Result`-based API + `validate_graph` |
 | Persistence | Paper may assume tool integration | Beyond JSON/DOT/CSV artifacts |
@@ -370,22 +349,17 @@ cargo test
 cargo run -- paper
 
 # Parser paths into the same graph
-cargo run -- cpp examples/program1.cpp
-cargo run -- cpp-implicit examples/program1_plain.cpp
+cargo run -- cpp examples/paper_program1/program1.cpp
+cargo run -- cpp-implicit examples/paper_program1/program1_plain.cpp
 cargo run -- figure4
 cargo run --release -- bench-corpus
-cargo run -- c examples/program1.c
-cargo run -- parse examples/program1.tt
-cargo run -- pseudo examples/program1.pseudo
 
 # Generic analysis path
-cargo run -- analyze-cpp examples/program1.cpp insert Act2 v Write
-cargo run -- analyze-c examples/program1.c insert Act2 v Write
-cargo run -- analyze-pseudo examples/nested_split.pseudo insert Act1 x Write
+cargo run -- analyze-cpp examples/paper_program1/program1.cpp insert Act2 v Write
 
 # Machine-readable artifacts
-cargo run --quiet -- export-json examples/program1.pseudo > reproduction.json
-cargo run --quiet -- export-paper-json examples/program1.pseudo > reproduction-after-insertion.json
+cargo run --quiet -- export-json examples/paper_program1/program1.cpp > reproduction.json
+cargo run --quiet -- export-paper-json examples/paper_program1/program1.cpp > reproduction-after-insertion.json
 cargo run --release -- bench
 cargo run --quiet --release -- bench-csv > benchmark.csv
 ```
