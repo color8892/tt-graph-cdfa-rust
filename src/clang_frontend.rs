@@ -3,21 +3,42 @@ use std::sync::Mutex;
 
 use clang::{Clang, Entity, EntityKind, Index, Unsaved};
 
+use crate::diagnostics::SourceLocation;
 use crate::{ControlType, Operation, OperationType, TTGraph, TTNode};
 
+pub struct ParsedCppGraph {
+    pub graph: TTGraph,
+    pub source_locations: HashMap<String, SourceLocation>,
+}
+
 pub fn parse_cpp_file(path: &str) -> Result<TTGraph, String> {
+    parse_cpp_file_with_locations(path).map(|parsed| parsed.graph)
+}
+
+pub fn parse_cpp_file_with_locations(path: &str) -> Result<ParsedCppGraph, String> {
     let source = std::fs::read_to_string(path)
         .map_err(|error| format!("failed to read `{path}`: {error}"))?;
-    parse_cpp_source(path, &source)
+    parse_cpp_source_with_locations(path, &source)
 }
 
 pub fn parse_cpp_implicit_file(path: &str) -> Result<TTGraph, String> {
+    parse_cpp_implicit_file_with_locations(path).map(|parsed| parsed.graph)
+}
+
+pub fn parse_cpp_implicit_file_with_locations(path: &str) -> Result<ParsedCppGraph, String> {
     let source = std::fs::read_to_string(path)
         .map_err(|error| format!("failed to read `{path}`: {error}"))?;
-    parse_cpp_implicit_source(path, &source)
+    parse_cpp_implicit_source_with_locations(path, &source)
 }
 
 pub fn parse_cpp_implicit_source(display_path: &str, source: &str) -> Result<TTGraph, String> {
+    parse_cpp_implicit_source_with_locations(display_path, source).map(|parsed| parsed.graph)
+}
+
+pub fn parse_cpp_implicit_source_with_locations(
+    display_path: &str,
+    source: &str,
+) -> Result<ParsedCppGraph, String> {
     let _guard = PARSE_LOCK
         .lock()
         .map_err(|_| "failed to lock C++ parser".to_string())?;
@@ -58,7 +79,7 @@ pub fn parse_cpp_implicit_source(display_path: &str, source: &str) -> Result<TTG
         );
     }
 
-    let mut builder = GraphBuilder::new();
+    let mut builder = GraphBuilder::new(display_path);
     let root = translation_unit.get_entity();
     if let Some(workers) = collect_std_thread_workers_from_source(source, &root)
         .or_else(|| collect_std_thread_workers(&root, &root))
@@ -68,12 +89,19 @@ pub fn parse_cpp_implicit_source(display_path: &str, source: &str) -> Result<TTG
         build_from_sequential_entry(root, &mut builder)?;
     }
 
-    Ok(TTGraph::new(builder.nodes))
+    Ok(builder.finish())
 }
 
 static PARSE_LOCK: Mutex<()> = Mutex::new(());
 
 pub fn parse_cpp_source(display_path: &str, source: &str) -> Result<TTGraph, String> {
+    parse_cpp_source_with_locations(display_path, source).map(|parsed| parsed.graph)
+}
+
+pub fn parse_cpp_source_with_locations(
+    display_path: &str,
+    source: &str,
+) -> Result<ParsedCppGraph, String> {
     let tt_pragmas = parse_tt_pragmas(source)?;
     let _guard = PARSE_LOCK
         .lock()
@@ -116,14 +144,14 @@ pub fn parse_cpp_source(display_path: &str, source: &str) -> Result<TTGraph, Str
         );
     }
 
-    let mut builder = GraphBuilder::new();
+    let mut builder = GraphBuilder::new(display_path);
     if tt_pragmas.parallel_id.is_some() {
         build_from_tt_pragmas(&tt_pragmas, translation_unit.get_entity(), &mut builder)?;
     } else {
         build_from_openmp_sections(&clang, source, translation_unit.get_entity(), &mut builder)?;
     }
 
-    Ok(TTGraph::new(builder.nodes))
+    Ok(builder.finish())
 }
 
 fn build_from_tt_pragmas<'tu>(
@@ -594,6 +622,8 @@ struct BranchBinding<'tu> {
 
 struct GraphBuilder {
     nodes: HashMap<String, TTNode>,
+    source_path: String,
+    source_locations: HashMap<String, SourceLocation>,
     next_activity: usize,
     next_loop: usize,
     next_xor: usize,
@@ -601,13 +631,22 @@ struct GraphBuilder {
 }
 
 impl GraphBuilder {
-    fn new() -> Self {
+    fn new(source_path: &str) -> Self {
         Self {
             nodes: HashMap::new(),
+            source_path: source_path.to_string(),
+            source_locations: HashMap::new(),
             next_activity: 1,
             next_loop: 1,
             next_xor: 1,
             next_openmp_branch: 2,
+        }
+    }
+
+    fn finish(self) -> ParsedCppGraph {
+        ParsedCppGraph {
+            graph: TTGraph::new(self.nodes),
+            source_locations: self.source_locations,
         }
     }
 
@@ -641,18 +680,39 @@ impl GraphBuilder {
     }
 
     fn process_compound(&mut self, block_id: &str, compound: &Entity<'_>) -> Result<(), String> {
-        let mut previous_item_id: Option<String> = None;
+        let mut previous_item_id = None;
+        self.process_compound_recursive(block_id, compound, &mut previous_item_id)
+    }
+
+    fn process_compound_recursive(
+        &mut self,
+        block_id: &str,
+        compound: &Entity<'_>,
+        previous_item_id: &mut Option<String>,
+    ) -> Result<(), String> {
         let mut pending_operations = Vec::new();
+        let mut pending_location = None;
 
         for child in compound.get_children() {
             if child.get_kind() == EntityKind::CompoundStmt {
-                self.process_compound(block_id, &child)?;
+                self.flush_activity(
+                    block_id,
+                    previous_item_id,
+                    &mut pending_operations,
+                    &mut pending_location,
+                )?;
+                self.process_compound_recursive(block_id, &child, previous_item_id)?;
                 continue;
             }
             if is_control_statement(child.get_kind()) {
-                self.flush_activity(block_id, &mut previous_item_id, &mut pending_operations)?;
+                self.flush_activity(
+                    block_id,
+                    previous_item_id,
+                    &mut pending_operations,
+                    &mut pending_location,
+                )?;
                 let item_id = self.process_control_statement(block_id, &child)?;
-                self.link_item(block_id, &mut previous_item_id, &item_id);
+                self.link_item(block_id, previous_item_id, &item_id);
                 continue;
             }
 
@@ -660,11 +720,19 @@ impl GraphBuilder {
                 if operations.is_empty() {
                     continue;
                 }
+                if pending_location.is_none() {
+                    pending_location = self.source_location(&child);
+                }
                 pending_operations.extend(operations);
             }
         }
 
-        self.flush_activity(block_id, &mut previous_item_id, &mut pending_operations)?;
+        self.flush_activity(
+            block_id,
+            previous_item_id,
+            &mut pending_operations,
+            &mut pending_location,
+        )?;
         Ok(())
     }
 
@@ -702,6 +770,7 @@ impl GraphBuilder {
             .with_operations(read_operations_from_expr(&condition))
             .with_branch_arc(vec![body_block_id.clone()]),
         )?;
+        self.record_location(&control_id, stmt);
         self.insert_unique_node(
             body_block_id.clone(),
             TTNode::block(body_block_id.clone(), control_id.clone()),
@@ -731,6 +800,7 @@ impl GraphBuilder {
             .with_operations(read_operations_from_expr(condition))
             .with_branch_arc(vec![then_block_id.clone(), else_block_id.clone()]),
         )?;
+        self.record_location(&control_id, stmt);
         self.insert_unique_node(
             then_block_id.clone(),
             TTNode::block(then_block_id.clone(), control_id.clone()),
@@ -753,7 +823,13 @@ impl GraphBuilder {
         } else if let Some(operations) = operations_from_statement(stmt)? {
             let mut previous_item_id = None;
             let mut pending_operations = operations;
-            self.flush_activity(block_id, &mut previous_item_id, &mut pending_operations)
+            let mut pending_location = self.source_location(stmt);
+            self.flush_activity(
+                block_id,
+                &mut previous_item_id,
+                &mut pending_operations,
+                &mut pending_location,
+            )
         } else {
             Ok(())
         }
@@ -764,6 +840,7 @@ impl GraphBuilder {
         block_id: &str,
         previous_item_id: &mut Option<String>,
         pending_operations: &mut Vec<Operation>,
+        pending_location: &mut Option<SourceLocation>,
     ) -> Result<(), String> {
         if pending_operations.is_empty() {
             return Ok(());
@@ -776,8 +853,22 @@ impl GraphBuilder {
             TTNode::activity(activity_id.clone(), block_id.to_string())
                 .with_operations(std::mem::take(pending_operations)),
         )?;
+        if let Some(location) = pending_location.take() {
+            self.source_locations.insert(activity_id.clone(), location);
+        }
         self.link_item(block_id, previous_item_id, &activity_id);
         Ok(())
+    }
+
+    fn record_location(&mut self, node_id: &str, entity: &Entity<'_>) {
+        if let Some(location) = self.source_location(entity) {
+            self.source_locations.insert(node_id.to_string(), location);
+        }
+    }
+
+    fn source_location(&self, entity: &Entity<'_>) -> Option<SourceLocation> {
+        entity_location(entity)
+            .map(|(line, column)| SourceLocation::new(self.source_path.clone(), line, column))
     }
 
     fn link_item(&mut self, block_id: &str, previous_item_id: &mut Option<String>, item_id: &str) {
@@ -938,9 +1029,14 @@ fn bind_branches_to_functions<'tu>(
 }
 
 fn entity_line(entity: &Entity<'_>) -> Option<usize> {
-    entity
-        .get_location()
-        .map(|location| location.get_spelling_location().line as usize)
+    entity_location(entity).map(|(line, _)| line)
+}
+
+fn entity_location(entity: &Entity<'_>) -> Option<(usize, usize)> {
+    entity.get_location().map(|location| {
+        let spelling = location.get_spelling_location();
+        (spelling.line as usize, spelling.column as usize)
+    })
 }
 
 fn is_control_statement(kind: EntityKind) -> bool {
@@ -984,6 +1080,19 @@ fn operations_from_statement(stmt: &Entity<'_>) -> Result<Option<Vec<Operation>>
             Ok(Some(operations))
         }
         EntityKind::CompoundStmt => Ok(Some(Vec::new())),
+        EntityKind::VarDecl => {
+            let mut operations = Vec::new();
+            if let Some(var_name) = stmt.get_name() {
+                let children = stmt.get_children();
+                if !children.is_empty() {
+                    operations.push(Operation::new(var_name, OperationType::Write));
+                    for child in children {
+                        operations.extend(read_operations_from_expr(&child));
+                    }
+                }
+            }
+            Ok(Some(operations))
+        }
         kind if is_expr_wrapper(kind) => {
             let mut operations = Vec::new();
             for child in stmt.get_children() {
@@ -997,7 +1106,6 @@ fn operations_from_statement(stmt: &Entity<'_>) -> Result<Option<Vec<Operation>>
         EntityKind::NullStmt
         | EntityKind::LabelStmt
         | EntityKind::ReturnStmt
-        | EntityKind::VarDecl
         | EntityKind::ParmDecl
         | EntityKind::DeclRefExpr
         | EntityKind::FunctionDecl
@@ -1344,8 +1452,8 @@ mod tests {
     use super::*;
     use crate::{OperationType, build_paper_example_graph};
 
-    const PAPER_CPP: &str = include_str!("../examples/program1.cpp");
-    const PLAIN_CPP: &str = include_str!("../examples/program1_plain.cpp");
+    const PAPER_CPP: &str = include_str!("../examples/paper_program1/program1.cpp");
+    const PLAIN_CPP: &str = include_str!("../examples/paper_program1/program1_plain.cpp");
 
     fn parse_test_source(source: &str) -> Result<TTGraph, String> {
         parse_cpp_source("program1.cpp", source)
@@ -1355,7 +1463,7 @@ mod tests {
         parse_cpp_implicit_source("program1_plain.cpp", source)
     }
 
-    fn skip_without_libclang(result: Result<TTGraph, String>) -> Option<TTGraph> {
+    fn skip_without_libclang<T>(result: Result<T, String>) -> Option<T> {
         match result {
             Ok(graph) => Some(graph),
             Err(error) if error.contains("libclang") => {
@@ -1398,7 +1506,8 @@ mod tests {
 
     #[test]
     fn parses_file_path_entry_point() {
-        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/program1.cpp");
+        let path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/paper_program1/program1.cpp");
         let Some(parsed) =
             skip_without_libclang(parse_cpp_file(path.to_str().expect("utf-8 path")))
         else {
@@ -1437,6 +1546,39 @@ mod tests {
     }
 
     #[test]
+    fn parsed_cpp_records_activity_source_locations() {
+        let Some(parsed_with_locations) =
+            skip_without_libclang(parse_cpp_source_with_locations("program1.cpp", PAPER_CPP))
+        else {
+            return;
+        };
+        assert!(parsed_with_locations.graph.nodes.contains_key("Act1"));
+        let location = parsed_with_locations
+            .source_locations
+            .get("Act1")
+            .expect("Act1 source location");
+        assert_eq!(location.file, "program1.cpp");
+        assert!(location.line > 1);
+        assert!(location.column >= 1);
+    }
+
+    #[test]
+    fn parsed_implicit_cpp_records_activity_source_locations() {
+        let Some(parsed_with_locations) = skip_without_libclang(
+            parse_cpp_implicit_source_with_locations("program1_plain.cpp", PLAIN_CPP),
+        ) else {
+            return;
+        };
+        let location = parsed_with_locations
+            .source_locations
+            .get("Act1")
+            .expect("Act1 source location");
+        assert_eq!(location.file, "program1_plain.cpp");
+        assert!(location.line > 1);
+        assert!(location.column >= 1);
+    }
+
+    #[test]
     fn parsed_program1_plain_cpp_reproduces_program_2_insertion() {
         let Some(mut parsed) = skip_without_libclang(parse_implicit_test_source(PLAIN_CPP)) else {
             return;
@@ -1459,7 +1601,7 @@ mod tests {
 
     #[test]
     fn legacy_pragma_cpp_still_parses_program1() {
-        const PRAGMA_CPP: &str = include_str!("../examples/program1_pragma.cpp");
+        const PRAGMA_CPP: &str = include_str!("../examples/paper_program1/program1_pragma.cpp");
         let Some(parsed) = skip_without_libclang(parse_test_source(PRAGMA_CPP)) else {
             return;
         };
@@ -1467,6 +1609,207 @@ mod tests {
         assert_eq!(
             parsed.nodes["B1"].d_opn_set,
             hardcoded.nodes["B1"].d_opn_set
+        );
+    }
+
+    #[test]
+    fn parses_nested_compound_statement_without_orphans() {
+        let source = r#"
+            int v = 0;
+            int i = 0;
+            void tt_print(int &) {}
+            void f() {
+            #pragma omp parallel sections
+              {
+            #pragma omp section
+                {
+                  tt_print(v);
+                  {
+                    v = 10;
+                  }
+                  tt_print(i);
+                }
+              }
+            }
+        "#;
+        let Some(parsed) = skip_without_libclang(parse_test_source(source)) else {
+            return;
+        };
+        let b1 = &parsed.nodes["B1"];
+        let start_id = b1.sequence_arc.as_ref().expect("B1 has start sequence");
+
+        let mut visited = Vec::new();
+        let mut curr = Some(start_id.clone());
+        while let Some(node_id) = curr {
+            visited.push(node_id.clone());
+            curr = parsed.nodes[&node_id].sequence_arc.clone();
+        }
+
+        let has_write_v = visited.iter().any(|node_id| {
+            parsed.nodes[node_id]
+                .operations
+                .contains(&Operation::new("v", OperationType::Write))
+        });
+        assert!(
+            has_write_v,
+            "The Write(v) activity is missing from the sequential path!"
+        );
+    }
+
+    #[test]
+    fn parses_var_decl_initializers() {
+        let source = r#"
+            int v = 0;
+            void f() {
+            #pragma omp parallel sections
+              {
+            #pragma omp section
+                {
+                  int x = v;
+                }
+              }
+            }
+        "#;
+        let Some(parsed) = skip_without_libclang(parse_test_source(source)) else {
+            return;
+        };
+        let b1 = &parsed.nodes["B1"];
+        let start_id = b1.sequence_arc.as_ref().expect("B1 has start sequence");
+        let act = &parsed.nodes[start_id];
+        assert!(
+            act.operations
+                .contains(&Operation::new("x", OperationType::Write)),
+            "Should capture Write(x)"
+        );
+        assert!(
+            act.operations
+                .contains(&Operation::new("v", OperationType::Read)),
+            "Should capture Read(v) from initializer"
+        );
+    }
+
+    #[test]
+    fn parses_complex_var_decl_initializers() {
+        let source = r#"
+            int v = 0;
+            int i = 0;
+            void f() {
+            #pragma omp parallel sections
+              {
+            #pragma omp section
+                {
+                  int x = v + i * 2;
+                }
+              }
+            }
+        "#;
+        let Some(parsed) = skip_without_libclang(parse_test_source(source)) else {
+            return;
+        };
+        let b1 = &parsed.nodes["B1"];
+        let start_id = b1.sequence_arc.as_ref().expect("B1 has start sequence");
+        let act = &parsed.nodes[start_id];
+        assert!(
+            act.operations
+                .contains(&Operation::new("x", OperationType::Write))
+        );
+        assert!(
+            act.operations
+                .contains(&Operation::new("v", OperationType::Read))
+        );
+        assert!(
+            act.operations
+                .contains(&Operation::new("i", OperationType::Read))
+        );
+    }
+
+    #[test]
+    fn parses_pointer_var_decl_initializers() {
+        let source = r#"
+            int v = 0;
+            void f() {
+            #pragma omp parallel sections
+              {
+            #pragma omp section
+                {
+                  int *p = &v;
+                }
+              }
+            }
+        "#;
+        let Some(parsed) = skip_without_libclang(parse_test_source(source)) else {
+            return;
+        };
+        let b1 = &parsed.nodes["B1"];
+        let start_id = b1.sequence_arc.as_ref().expect("B1 has start sequence");
+        let act = &parsed.nodes[start_id];
+        assert!(
+            act.operations
+                .contains(&Operation::new("p", OperationType::Write))
+        );
+        assert!(
+            act.operations
+                .contains(&Operation::new("v", OperationType::Read))
+        );
+    }
+
+    #[test]
+    fn parses_constructor_initializers() {
+        let source = r#"
+            int v = 0;
+            void f() {
+            #pragma omp parallel sections
+              {
+            #pragma omp section
+                {
+                  int x(v);
+                  int y{v};
+                }
+              }
+            }
+        "#;
+        let Some(parsed) = skip_without_libclang(parse_test_source(source)) else {
+            return;
+        };
+        let b1 = &parsed.nodes["B1"];
+        let start_id = b1.sequence_arc.as_ref().expect("B1 has start sequence");
+        let act = &parsed.nodes[start_id];
+        assert!(
+            act.operations
+                .contains(&Operation::new("x", OperationType::Write))
+        );
+        assert!(
+            act.operations
+                .contains(&Operation::new("y", OperationType::Write))
+        );
+        assert!(
+            act.operations
+                .contains(&Operation::new("v", OperationType::Read))
+        );
+    }
+
+    #[test]
+    fn returns_structured_error_on_invalid_cpp() {
+        let source = r#"
+            void f( {
+            #pragma omp parallel sections
+              {
+            #pragma omp section
+                {
+                  int x = 5;
+                }
+              }
+            }
+        "#;
+        let Some(_) = skip_without_libclang(Ok(())) else {
+            return;
+        };
+        let error = parse_test_source(source).expect_err("should fail to parse invalid syntax");
+        assert!(
+            error.contains("failed to parse")
+                || error.contains("region")
+                || error.contains("Diagnostic")
+                || error.contains("error")
         );
     }
 }

@@ -2,15 +2,14 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 
 pub mod bench;
 pub mod bench_corpus;
-pub mod builder;
-pub mod c_frontend;
 #[cfg(feature = "clang")]
 pub mod clang_frontend;
+pub mod cli_support;
+pub mod diagnostics;
 pub mod export;
 pub mod figures;
 pub mod format_helper;
-pub mod pseudo;
-pub mod toy;
+pub mod interactive;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum NodeType {
@@ -31,6 +30,15 @@ pub enum OperationType {
     Write,
     Read,
     Kill,
+}
+
+pub fn parse_operation_type(value: &str) -> Option<OperationType> {
+    match value.to_ascii_lowercase().as_str() {
+        "read" => Some(OperationType::Read),
+        "write" => Some(OperationType::Write),
+        "kill" => Some(OperationType::Kill),
+        _ => None,
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -218,6 +226,40 @@ impl TTGraph {
         graph.rebuild_all_d_opn_sets();
         graph.recompute_all_cca_sets();
         graph
+    }
+
+    /// Validates the graph structure. Returns `Ok(())` if the graph is structurally valid,
+    /// or a list of error messages if there are invalid node references.
+    pub fn validate(&self) -> Result<(), Vec<String>> {
+        let mut errors = Vec::new();
+        for (node_id, node) in &self.nodes {
+            if let Some(scope_id) = &node.scope_arc
+                && !self.nodes.contains_key(scope_id)
+            {
+                errors.push(format!(
+                    "Node `{node_id}` has scope_arc pointing to non-existent node `{scope_id}`"
+                ));
+            }
+            if let Some(seq_id) = &node.sequence_arc
+                && !self.nodes.contains_key(seq_id)
+            {
+                errors.push(format!(
+                    "Node `{node_id}` has sequence_arc pointing to non-existent node `{seq_id}`"
+                ));
+            }
+            for branch_id in &node.branch_arc {
+                if !self.nodes.contains_key(branch_id) {
+                    errors.push(format!(
+                        "Node `{node_id}` has branch_arc pointing to non-existent node `{branch_id}`"
+                    ));
+                }
+            }
+        }
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors)
+        }
     }
 
     /// Inserts a data-flow operation into a node and runs both summary and direct scan
@@ -1417,6 +1459,56 @@ mod tests {
         );
 
         TTGraph::new(nodes)
+    }
+
+    #[test]
+    fn rejects_invalid_node_references() {
+        let mut nodes = HashMap::new();
+        nodes.insert(
+            "And1".to_string(),
+            TTNode::control("And1", ControlType::And, None).with_branch_arc(vec!["B1".to_string()]),
+        );
+        nodes.insert(
+            "B1".to_string(),
+            TTNode::block("B1", "And1").with_sequence_arc("Act1"),
+        );
+        nodes.insert("Act1".to_string(), TTNode::activity("Act1", "B1"));
+
+        let graph = TTGraph {
+            nodes,
+            children_index: HashMap::new(),
+        };
+        assert!(graph.validate().is_ok());
+
+        let mut malformed_nodes = graph.nodes.clone();
+        malformed_nodes.get_mut("B1").unwrap().scope_arc = Some("NonExistentAnd".to_string());
+        let graph2 = TTGraph {
+            nodes: malformed_nodes,
+            children_index: HashMap::new(),
+        };
+        let errs = graph2.validate().unwrap_err();
+        assert_eq!(errs.len(), 1);
+        assert!(errs[0].contains("scope_arc pointing to non-existent node `NonExistentAnd`"));
+
+        let mut malformed_nodes2 = graph.nodes.clone();
+        malformed_nodes2.get_mut("B1").unwrap().sequence_arc = Some("NonExistentAct".to_string());
+        let graph3 = TTGraph {
+            nodes: malformed_nodes2,
+            children_index: HashMap::new(),
+        };
+        let errs2 = graph3.validate().unwrap_err();
+        assert_eq!(errs2.len(), 1);
+        assert!(errs2[0].contains("sequence_arc pointing to non-existent node `NonExistentAct`"));
+
+        let mut malformed_nodes3 = graph.nodes.clone();
+        malformed_nodes3.get_mut("B1").unwrap().branch_arc = vec!["NonExistentBranch".to_string()];
+        let graph4 = TTGraph {
+            nodes: malformed_nodes3,
+            children_index: HashMap::new(),
+        };
+        let errs3 = graph4.validate().unwrap_err();
+        assert_eq!(errs3.len(), 1);
+        assert!(errs3[0].contains("branch_arc pointing to non-existent node `NonExistentBranch`"));
     }
 
     fn assert_d_opn(
