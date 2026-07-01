@@ -1,0 +1,56 @@
+{
+  "name": "tt-graph-cdfa",
+  "displayName": "TT Graph CDFA",
+  "description": "IDE prototype for TT Graph based concurrent dataflow anomaly diagnostics.",
+  "version": "0.1.0",
+  "publisher": "color8892",
+  "engines": {
+    "vscode": "^1.92.0"
+  },
+  "categories": [
+    "Linters",
+    "Visualization"
+  ],
+  "activationEvents": [
+    "onCommand:ttGraphCdfa.analyzeCurrentFile",
+    "onCommand:ttGraphCdfa.analyzeWorkspaceExample",
+    "onCommand:ttGraphCdfa.clearDiagnostics"
+  ],
+  "main": "./out/src/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "ttGraphCdfa.analyzeCurrentFile",
+        "title": "TT Graph CDFA: Analyze Current File"
+      },
+      {
+        "command": "ttGraphCdfa.analyzeWorkspaceExample",
+        "title": "TT Graph CDFA: Analyze Workspace Example"
+      },
+      {
+        "command": "ttGraphCdfa.clearDiagnostics",
+        "title": "TT Graph CDFA: Clear Diagnostics"
+      }
+    ],
+    "configuration": {
+      "title": "TT Graph CDFA",
+      "properties": {
+        "ttGraphCdfa.analyzerPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the tt-graph-cdfa-rust analyzer binary. If empty, the extension tries the workspace target/debug binary."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "lint": "tsc -p ./ --noEmit",
+    "test": "npm run compile && node ./out/test/run-tests.js"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.12",
+    "@types/vscode": "^1.92.0",
+    "typescript": "^5.5.4"
+  }
+}
