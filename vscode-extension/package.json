@@ -46,11 +46,15 @@
   "scripts": {
     "compile": "tsc -p ./",
     "lint": "tsc -p ./ --noEmit",
-    "test": "npm run compile && node ./out/test/run-tests.js"
+    "test": "npm run compile && node ./out/test/run-tests.js",
+    "audit": "npm audit --audit-level=high"
   },
   "devDependencies": {
     "@types/node": "^20.14.12",
     "@types/vscode": "^1.92.0",
     "typescript": "^5.5.4"
+  },
+  "dependencies": {
+    "mermaid": "^10.9.6"
   }
 }

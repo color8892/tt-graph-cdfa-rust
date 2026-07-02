@@ -1,6 +1,8 @@
 .vscode/**
 .git/**
 node_modules/**
+!node_modules/mermaid/
+!node_modules/mermaid/dist/**
 src/**
 test/**
 tsconfig.json

@@ -3,6 +3,7 @@ import * as path from "path";
 import * as vscode from "vscode";
 import { resolveAnalyzerPath, runAnalyzer } from "./analyzer";
 import { renderGraphHtml } from "./graphView";
+import { findGraphNode } from "./resultLookup";
 import { AnalyzerResult, CdfaDiagnostic, SourceLocation } from "./schema";
 
 let diagnosticCollection: vscode.DiagnosticCollection;
@@ -84,7 +85,7 @@ function showGraphWebview(result: AnalyzerResult, context: vscode.ExtensionConte
 
   if (currentPanel) {
     currentPanel.reveal(columnToShowIn);
-    currentPanel.webview.html = renderGraphHtml(result);
+    currentPanel.webview.html = renderGraphHtml(result, graphHtmlOptions(currentPanel.webview, context));
     return;
   }
 
@@ -95,17 +96,21 @@ function showGraphWebview(result: AnalyzerResult, context: vscode.ExtensionConte
     {
       enableScripts: true,
       retainContextWhenHidden: true,
+      localResourceRoots: [
+        vscode.Uri.joinPath(context.extensionUri, "node_modules", "mermaid", "dist"),
+        vscode.Uri.joinPath(context.extensionUri, "media"),
+      ],
     }
   );
 
-  currentPanel.webview.html = renderGraphHtml(result);
+  currentPanel.webview.html = renderGraphHtml(result, graphHtmlOptions(currentPanel.webview, context));
 
   currentPanel.webview.onDidReceiveMessage(
     async (message) => {
       switch (message.type) {
         case "openNode":
           const nodeId = message.nodeId;
-          const node = result.graph.nodes.find((n) => n.id === nodeId);
+          const node = findGraphNode(lastResult, nodeId);
           if (node && node.source) {
             await openLocation(node.source);
           }
@@ -183,6 +188,37 @@ function clearDiagnostics(): void {
   if (currentPanel) {
     currentPanel.dispose();
   }
+}
+
+function graphHtmlOptions(webview: vscode.Webview, context: vscode.ExtensionContext) {
+  const mermaidScriptUri = webview.asWebviewUri(
+    vscode.Uri.joinPath(
+      context.extensionUri,
+      "node_modules",
+      "mermaid",
+      "dist",
+      "mermaid.esm.min.mjs",
+    ),
+  );
+  const graphStylesUri = webview.asWebviewUri(
+    vscode.Uri.joinPath(context.extensionUri, "media", "graphView.css"),
+  );
+
+  return {
+    mermaidScriptUri: mermaidScriptUri.toString(),
+    graphStylesUri: graphStylesUri.toString(),
+    nonce: createNonce(),
+    webviewCspSource: webview.cspSource,
+  };
+}
+
+function createNonce(): string {
+  const possible = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+  let text = "";
+  for (let index = 0; index < 32; index++) {
+    text += possible.charAt(Math.floor(Math.random() * possible.length));
+  }
+  return text;
 }
 
 // @ts-ignore (unused in this file but exported by design)

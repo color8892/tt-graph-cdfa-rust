@@ -27,7 +27,6 @@ Commands:
 
 - `TT Graph CDFA: Analyze Current File`
 - `TT Graph CDFA: Analyze Workspace Example`
-- `TT Graph CDFA: Show Graph`
 - `TT Graph CDFA: Clear Diagnostics`
 
 The extension reads the analyzer binary from:
@@ -44,7 +43,7 @@ If this setting is empty, it tries the repository-local debug binary under
 - C++ paper examples via `diagnostics-cpp`
 - implicit `std::thread` example via `diagnostics-cpp-implicit`
 - Problems diagnostics
-- SVG TT Graph webview
+- Mermaid TT Graph webview
 - click graph nodes to jump to source locations when available
 
 This is an IDE/SDE prototype. It is not a full C++ language server and does not

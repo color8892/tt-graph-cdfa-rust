@@ -85,7 +85,7 @@ impl CcaEntry {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TTNode {
     pub node_id: String,
     pub node_type: NodeType,
@@ -197,7 +197,28 @@ pub struct DeletionResult {
     pub summary_blocks_updated: Vec<String>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum TTGraphError {
+    MissingNode { node_id: String },
+    InvalidGraph { errors: Vec<String> },
+}
+
+impl std::fmt::Display for TTGraphError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TTGraphError::MissingNode { node_id } => {
+                write!(formatter, "missing TT Graph node `{node_id}`")
+            }
+            TTGraphError::InvalidGraph { errors } => {
+                write!(formatter, "invalid TT Graph: {}", errors.join("; "))
+            }
+        }
+    }
+}
+
+impl std::error::Error for TTGraphError {}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TTGraph {
     pub nodes: HashMap<String, TTNode>,
     children_index: HashMap<String, Vec<String>>,
@@ -288,6 +309,17 @@ impl TTGraph {
         }
     }
 
+    /// Inserts a data-flow operation without panicking on invalid input.
+    pub fn try_insert_operation(
+        &mut self,
+        tnode_id: &str,
+        variable: &str,
+        op: OperationType,
+    ) -> Result<DetectionResult, TTGraphError> {
+        self.validate_for_operation(tnode_id)?;
+        Ok(self.insert_operation(tnode_id, variable, op))
+    }
+
     /// Deletes a data-flow operation from a node and propagates the deletion
     /// up the scope hierarchy, updating summaries and recomputing CCA sets.
     ///
@@ -346,6 +378,17 @@ impl TTGraph {
             touched_and_nodes,
             summary_blocks_updated,
         }
+    }
+
+    /// Deletes a data-flow operation without panicking on invalid input.
+    pub fn try_delete_operation(
+        &mut self,
+        tnode_id: &str,
+        variable: &str,
+        op: OperationType,
+    ) -> Result<DeletionResult, TTGraphError> {
+        self.validate_for_operation(tnode_id)?;
+        Ok(self.delete_operation(tnode_id, variable, op))
     }
 
     /// Inserts a data-flow operation into a node using only the summary-based
@@ -789,6 +832,16 @@ impl TTGraph {
             .filter(|block_id| block_id.as_str() != current_block_id)
             .cloned()
             .collect()
+    }
+
+    fn validate_for_operation(&self, tnode_id: &str) -> Result<(), TTGraphError> {
+        if !self.nodes.contains_key(tnode_id) {
+            return Err(TTGraphError::MissingNode {
+                node_id: tnode_id.to_string(),
+            });
+        }
+        self.validate()
+            .map_err(|errors| TTGraphError::InvalidGraph { errors })
     }
 }
 
@@ -1381,6 +1434,160 @@ mod tests {
         assert!(!delete_result.removed_operation);
         assert!(delete_result.touched_and_nodes.is_empty());
         assert!(delete_result.summary_blocks_updated.is_empty());
+    }
+
+    #[test]
+    fn try_operations_report_missing_node_without_panicking() {
+        let mut graph = build_paper_example_graph();
+        let before = graph.nodes.clone();
+
+        let insert_error = graph
+            .try_insert_operation("MissingAct", "v", OperationType::Write)
+            .unwrap_err();
+        assert_eq!(
+            insert_error,
+            TTGraphError::MissingNode {
+                node_id: "MissingAct".to_string()
+            }
+        );
+        assert_eq!(graph.nodes, before);
+
+        let delete_error = graph
+            .try_delete_operation("MissingAct", "v", OperationType::Write)
+            .unwrap_err();
+        assert_eq!(
+            delete_error,
+            TTGraphError::MissingNode {
+                node_id: "MissingAct".to_string()
+            }
+        );
+        assert_eq!(graph.nodes, before);
+    }
+
+    #[test]
+    fn try_insert_matches_panic_api_for_valid_graph() {
+        let mut try_graph = build_paper_example_graph();
+        let mut panic_graph = build_paper_example_graph();
+
+        let try_result = try_graph
+            .try_insert_operation("Act2", "v", OperationType::Write)
+            .unwrap();
+        let panic_result = panic_graph.insert_operation("Act2", "v", OperationType::Write);
+
+        assert_eq!(try_result, panic_result);
+        assert_eq!(try_graph.nodes, panic_graph.nodes);
+    }
+
+    #[test]
+    fn try_delete_updates_graph_for_valid_graph() {
+        let mut graph = build_paper_example_graph();
+        graph
+            .try_insert_operation("Act2", "v", OperationType::Write)
+            .unwrap();
+
+        let delete_result = graph
+            .try_delete_operation("Act2", "v", OperationType::Write)
+            .unwrap();
+
+        assert!(delete_result.removed_operation);
+        assert_eq!(
+            delete_result.summary_blocks_updated,
+            vec!["B3".to_string(), "B1".to_string()]
+        );
+        assert!(
+            !graph.nodes["Act2"]
+                .operations
+                .contains(&Operation::new("v", OperationType::Write))
+        );
+    }
+
+    #[test]
+    fn try_delete_missing_operation_is_successful_noop() {
+        let mut graph = build_paper_example_graph();
+        let before = graph.nodes.clone();
+
+        let delete_result = graph
+            .try_delete_operation("Act2", "v", OperationType::Write)
+            .unwrap();
+
+        assert!(!delete_result.removed_operation);
+        assert!(delete_result.touched_and_nodes.is_empty());
+        assert!(delete_result.summary_blocks_updated.is_empty());
+        assert_eq!(graph.nodes, before);
+    }
+
+    #[test]
+    fn try_operations_report_invalid_graph_references_without_mutating() {
+        let mut graph = build_paper_example_graph();
+        graph.nodes.get_mut("B1").unwrap().sequence_arc = Some("MissingAct".to_string());
+        let before = graph.nodes.clone();
+
+        let error = graph
+            .try_insert_operation("Act2", "v", OperationType::Write)
+            .unwrap_err();
+
+        assert!(matches!(error, TTGraphError::InvalidGraph { .. }));
+        assert!(
+            error
+                .to_string()
+                .contains("sequence_arc pointing to non-existent node `MissingAct`")
+        );
+        assert_eq!(graph.nodes, before);
+
+        let error = graph
+            .try_delete_operation("Act2", "v", OperationType::Write)
+            .unwrap_err();
+
+        assert!(matches!(error, TTGraphError::InvalidGraph { .. }));
+        assert_eq!(graph.nodes, before);
+    }
+
+    #[test]
+    fn try_insert_reports_invalid_scope_and_branch_references() {
+        let mut invalid_scope = build_paper_example_graph();
+        invalid_scope.nodes.get_mut("Act2").unwrap().scope_arc = Some("MissingScope".to_string());
+
+        let scope_error = invalid_scope
+            .try_insert_operation("Act2", "v", OperationType::Write)
+            .unwrap_err();
+        assert!(
+            scope_error
+                .to_string()
+                .contains("scope_arc pointing to non-existent node `MissingScope`")
+        );
+
+        let mut invalid_branch = build_paper_example_graph();
+        invalid_branch
+            .nodes
+            .get_mut("And1")
+            .unwrap()
+            .branch_arc
+            .push("MissingBranch".to_string());
+
+        let branch_error = invalid_branch
+            .try_insert_operation("Act2", "v", OperationType::Write)
+            .unwrap_err();
+        assert!(
+            branch_error
+                .to_string()
+                .contains("branch_arc pointing to non-existent node `MissingBranch`")
+        );
+    }
+
+    #[test]
+    fn graph_error_display_is_readable() {
+        let missing = TTGraphError::MissingNode {
+            node_id: "ActX".to_string(),
+        };
+        assert_eq!(missing.to_string(), "missing TT Graph node `ActX`");
+
+        let invalid = TTGraphError::InvalidGraph {
+            errors: vec!["first error".to_string(), "second error".to_string()],
+        };
+        assert_eq!(
+            invalid.to_string(),
+            "invalid TT Graph: first error; second error"
+        );
     }
 
     fn build_nested_control_flow_graph() -> TTGraph {
