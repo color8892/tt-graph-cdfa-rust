@@ -49,6 +49,9 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
 
+      - name: Check documentation links
+        run: node scripts/check-doc-links.js
+
       - name: Build all targets
         run: cargo build --all-targets --locked
 
@@ -62,7 +65,9 @@ jobs:
         run: cargo doc --no-deps --locked
 
       - name: Run Clippy
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --all-targets
+        env:
+          RUSTFLAGS: -Dwarnings
 
       - name: Verify crate package
         run: cargo package --locked
@@ -119,6 +124,9 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Audit npm dependencies
+        run: npm run audit
 
       - name: TypeScript lint
         run: npm run lint

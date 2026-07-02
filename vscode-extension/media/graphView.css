@@ -1,0 +1,101 @@
+body {
+  font-family: var(--vscode-font-family);
+  color: var(--vscode-foreground);
+  padding: 16px;
+  background: var(--vscode-editor-background);
+}
+
+h1 {
+  font-size: 16px;
+  margin: 0 0 16px;
+  border-bottom: 1px solid var(--vscode-panel-border);
+  padding-bottom: 8px;
+}
+
+.graph-container {
+  width: 100%;
+  border: 1px solid var(--vscode-panel-border);
+  background: var(--vscode-editor-background);
+  border-radius: 4px;
+  padding: 12px;
+  box-sizing: border-box;
+  overflow: auto;
+}
+
+.node.activity rect,
+.node.activity polygon {
+  fill: #cfe8ff !important;
+  stroke: #1f6feb !important;
+  stroke-width: 1.5px !important;
+}
+
+.node.control polygon {
+  fill: #f2c94c !important;
+  stroke: #8a6d00 !important;
+  stroke-width: 1.5px !important;
+}
+
+.node.block rect {
+  fill: #b7e4c7 !important;
+  stroke: #2d6a4f !important;
+  stroke-width: 1.5px !important;
+}
+
+.vscode-dark .node.activity rect,
+.vscode-dark .node.activity polygon,
+.vscode-high-contrast .node.activity rect,
+.vscode-high-contrast .node.activity polygon {
+  fill: #1f3a60 !important;
+  stroke: #58a6ff !important;
+}
+
+.vscode-dark .node.control polygon,
+.vscode-high-contrast .node.control polygon {
+  fill: #6e5600 !important;
+  stroke: #f2c94c !important;
+}
+
+.vscode-dark .node.block rect,
+.vscode-high-contrast .node.block rect {
+  fill: #1b382b !important;
+  stroke: #3fb950 !important;
+}
+
+.node text {
+  fill: var(--vscode-editor-foreground, #111) !important;
+  font-weight: 500 !important;
+}
+
+table {
+  border-collapse: collapse;
+  margin-top: 24px;
+  width: 100%;
+}
+
+th,
+td {
+  border-bottom: 1px solid var(--vscode-panel-border);
+  padding: 8px 10px;
+  text-align: left;
+  font-size: 12px;
+}
+
+th {
+  font-weight: 600;
+  background: var(--vscode-panel-background);
+}
+
+tr:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.empty-diagnostics {
+  margin-top: 16px;
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.diagnostic-type {
+  color: #d73a49;
+  font-weight: 600;
+}

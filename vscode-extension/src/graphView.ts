@@ -1,106 +1,35 @@
 import { AnalyzerResult } from "./schema";
 
-export function renderGraphHtml(result: AnalyzerResult): string {
-  const mermaidCode = renderMermaid(result);
+export interface GraphHtmlOptions {
+  mermaidScriptUri: string;
+  graphStylesUri: string;
+  nonce: string;
+  webviewCspSource: string;
+}
+
+export function renderGraphHtml(result: AnalyzerResult, options: GraphHtmlOptions): string {
+  const renderedGraph = renderMermaidGraph(result);
 
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <style>
-    body {
-      font-family: var(--vscode-font-family);
-      color: var(--vscode-foreground);
-      padding: 16px;
-      background: var(--vscode-editor-background);
-    }
-    h1 {
-      font-size: 16px;
-      margin: 0 0 16px;
-      border-bottom: 1px solid var(--vscode-panel-border);
-      padding-bottom: 8px;
-    }
-    .graph-container {
-      width: 100%;
-      border: 1px solid var(--vscode-panel-border);
-      background: var(--vscode-editor-background);
-      border-radius: 4px;
-      padding: 12px;
-      box-sizing: border-box;
-      overflow: auto;
-    }
-    
-    /* Custom styles for Mermaid nodes that respect VS Code themes */
-    .node.activity rect, .node.activity polygon {
-      fill: #cfe8ff !important;
-      stroke: #1f6feb !important;
-      stroke-width: 1.5px !important;
-    }
-    .node.control polygon {
-      fill: #f2c94c !important;
-      stroke: #8a6d00 !important;
-      stroke-width: 1.5px !important;
-    }
-    .node.block rect {
-      fill: #b7e4c7 !important;
-      stroke: #2d6a4f !important;
-      stroke-width: 1.5px !important;
-    }
-    
-    /* Dark theme styling override */
-    .vscode-dark .node.activity rect, .vscode-dark .node.activity polygon,
-    .vscode-high-contrast .node.activity rect, .vscode-high-contrast .node.activity polygon {
-      fill: #1f3a60 !important;
-      stroke: #58a6ff !important;
-    }
-    .vscode-dark .node.control polygon,
-    .vscode-high-contrast .node.control polygon {
-      fill: #6e5600 !important;
-      stroke: #f2c94c !important;
-    }
-    .vscode-dark .node.block rect,
-    .vscode-high-contrast .node.block rect {
-      fill: #1b382b !important;
-      stroke: #3fb950 !important;
-    }
-    
-    .node text {
-      fill: var(--vscode-editor-foreground, #111) !important;
-      font-weight: 500 !important;
-    }
-    
-    table {
-      border-collapse: collapse;
-      margin-top: 24px;
-      width: 100%;
-    }
-    th, td {
-      border-bottom: 1px solid var(--vscode-panel-border);
-      padding: 8px 10px;
-      text-align: left;
-      font-size: 12px;
-    }
-    th {
-      font-weight: 600;
-      background: var(--vscode-panel-background);
-    }
-    tr:hover {
-      background: var(--vscode-list-hoverBackground);
-    }
-  </style>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${options.webviewCspSource} data:; style-src ${options.webviewCspSource}; script-src ${options.webviewCspSource} 'nonce-${options.nonce}';">
+  <link rel="stylesheet" href="${options.graphStylesUri}">
 </head>
 <body>
   <h1>TT Graph CDFA: ${escapeHtml(result.source.path)}</h1>
   <div class="graph-container">
     <pre class="mermaid">
-${mermaidCode}
+${renderedGraph.code}
     </pre>
   </div>
   
   ${renderSummaryTable(result)}
 
-  <script type="module">
-    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+  <script nonce="${options.nonce}" type="module">
+    import mermaid from '${options.mermaidScriptUri}';
+    const nodeIdByMermaidId = ${JSON.stringify(renderedGraph.nodeIdByMermaidId)};
     
     const isDark = document.body.classList.contains('vscode-dark') || 
                    document.body.classList.contains('vscode-high-contrast');
@@ -117,7 +46,8 @@ ${mermaidCode}
     });
 
     const vscode = acquireVsCodeApi();
-    window.nodeClicked = function(nodeId) {
+    window.nodeClicked = function(mermaidNodeId) {
+      const nodeId = nodeIdByMermaidId[mermaidNodeId] || mermaidNodeId;
       vscode.postMessage({ type: "openNode", nodeId: nodeId });
     };
   </script>
@@ -154,23 +84,39 @@ export function renderMarkdown(result: AnalyzerResult): string {
 }
 
 export function renderMermaid(result: AnalyzerResult, includeClickHandlers: boolean = true): string {
+  return renderMermaidGraph(result, includeClickHandlers).code;
+}
+
+export function renderMermaidGraph(
+  result: AnalyzerResult,
+  includeClickHandlers: boolean = true,
+): { code: string; nodeIdByMermaidId: Record<string, string> } {
   let mermaid = "flowchart TD\n";
+  const nodeIdByMermaidId: Record<string, string> = {};
+  const mermaidIdByNodeId = new Map<string, string>();
+
+  result.graph.nodes.forEach((node, index) => {
+    const mermaidId = `node_${index}`;
+    mermaidIdByNodeId.set(node.id, mermaidId);
+    nodeIdByMermaidId[mermaidId] = node.id;
+  });
 
   // Render nodes
   for (const node of result.graph.nodes) {
-    const label = node.label;
+    const id = mermaidIdByNodeId.get(node.id) ?? safeMermaidId(node.id);
+    const label = escapeMermaidLabel(node.label);
     if (node.node_type === "Control") {
       // Diamond shape for control
-      mermaid += `  ${node.id}{" ${label} "}\n`;
-      mermaid += `  class ${node.id} control\n`;
+      mermaid += `  ${id}{"${label}"}\n`;
+      mermaid += `  class ${id} control\n`;
     } else if (node.node_type === "Block") {
       // Rect shape for block
-      mermaid += `  ${node.id}[" ${label} "]\n`;
-      mermaid += `  class ${node.id} block\n`;
+      mermaid += `  ${id}["${label}"]\n`;
+      mermaid += `  class ${id} block\n`;
     } else {
       // Rect shape for activity
-      mermaid += `  ${node.id}[" ${label} "]\n`;
-      mermaid += `  class ${node.id} activity\n`;
+      mermaid += `  ${id}["${label}"]\n`;
+      mermaid += `  class ${id} activity\n`;
     }
   }
 
@@ -179,18 +125,20 @@ export function renderMermaid(result: AnalyzerResult, includeClickHandlers: bool
   const linkStyles: string[] = [];
   
   for (const edge of result.graph.edges) {
-    const cleanType = edge.type.replace(/:/g, "-");
+    const from = mermaidIdByNodeId.get(edge.from) ?? safeMermaidId(edge.from);
+    const to = mermaidIdByNodeId.get(edge.to) ?? safeMermaidId(edge.to);
+    const cleanType = escapeMermaidEdgeLabel(edge.type.replace(/:/g, "-"));
     if (edge.type === "sequence") {
-      mermaid += `  ${edge.from} --> ${edge.to}\n`;
+      mermaid += `  ${from} --> ${to}\n`;
     } else if (edge.type === "branch") {
-      mermaid += `  ${edge.from} -->|branch| ${edge.to}\n`;
+      mermaid += `  ${from} -->|"branch"| ${to}\n`;
     } else if (edge.type === "scope") {
-      mermaid += `  ${edge.from} -.->|scope| ${edge.to}\n`;
+      mermaid += `  ${from} -.->|"scope"| ${to}\n`;
     } else if (edge.type.startsWith("cca:")) {
-      mermaid += `  ${edge.from} -.->|${cleanType}| ${edge.to}\n`;
+      mermaid += `  ${from} -.->|"${cleanType}"| ${to}\n`;
       linkStyles.push(`  linkStyle ${linkIndex} stroke:#d73a49,stroke-width:2px`);
     } else {
-      mermaid += `  ${edge.from} -->|${cleanType}| ${edge.to}\n`;
+      mermaid += `  ${from} -->|"${cleanType}"| ${to}\n`;
     }
     linkIndex++;
   }
@@ -198,7 +146,8 @@ export function renderMermaid(result: AnalyzerResult, includeClickHandlers: bool
   // Click bindings for interactive jumping
   if (includeClickHandlers) {
     for (const node of result.graph.nodes) {
-      mermaid += `  click ${node.id} call nodeClicked()\n`;
+      const id = mermaidIdByNodeId.get(node.id) ?? safeMermaidId(node.id);
+      mermaid += `  click ${id} nodeClicked\n`;
     }
   }
 
@@ -207,16 +156,16 @@ export function renderMermaid(result: AnalyzerResult, includeClickHandlers: bool
     mermaid += "\n" + linkStyles.join("\n") + "\n";
   }
 
-  return mermaid;
+  return { code: mermaid, nodeIdByMermaidId };
 }
 
 function renderSummaryTable(result: AnalyzerResult): string {
   if (result.diagnostics.length === 0) {
-    return `<div style="margin-top: 16px; font-size: 12px; color: var(--vscode-descriptionForeground);">No concurrent dataflow anomalies detected.</div>`;
+    return `<div class="empty-diagnostics">No concurrent dataflow anomalies detected.</div>`;
   }
 
   const rows = result.diagnostics.map((diagnostic) => `<tr>
-    <td><span style="color: #d73a49; font-weight: 600;">${escapeHtml(diagnostic.cca_type)}</span></td>
+    <td><span class="diagnostic-type">${escapeHtml(diagnostic.cca_type)}</span></td>
     <td><code>${escapeHtml(diagnostic.variable)}</code></td>
     <td><code>${escapeHtml(diagnostic.first.node)}</code> (line ${diagnostic.first.line})</td>
     <td><code>${escapeHtml(diagnostic.second.node)}</code> (line ${diagnostic.second.line})</td>
@@ -243,4 +192,28 @@ function escapeHtml(value: string): string {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+function escapeMermaidLabel(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/\\/g, "\\\\")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "#quot;")
+    .replace(/\[/g, "&#91;")
+    .replace(/\]/g, "&#93;")
+    .replace(/\{/g, "&#123;")
+    .replace(/\}/g, "&#125;")
+    .replace(/\|/g, "&#124;")
+    .replace(/\r?\n/g, "<br/>");
+}
+
+function escapeMermaidEdgeLabel(value: string): string {
+  return escapeMermaidLabel(value).replace(/<br\/>/g, " ");
+}
+
+function safeMermaidId(value: string): string {
+  const safe = value.replace(/[^A-Za-z0-9_]/g, "_");
+  return /^[A-Za-z_]/.test(safe) ? safe : `node_${safe}`;
 }

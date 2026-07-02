@@ -1,8 +1,8 @@
 # Artifact Schema
 
-`cargo run --quiet -- export-json examples/program1.pseudo` emits a stable JSON
-artifact for inspecting a parsed TT Graph. Use `export-paper-json` when the
-artifact should include the paper's Program 2 insertion.
+`cargo run --quiet -- export-json examples/paper_program1/program1.cpp` emits a
+stable JSON artifact for inspecting a parsed TT Graph. Use `export-paper-json`
+when the artifact should include the paper's Program 2 insertion.
 
 The current root object has `schema_version: 1`.
 

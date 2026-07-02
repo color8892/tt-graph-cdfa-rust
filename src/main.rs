@@ -202,11 +202,6 @@ fn run_analyze_source(
     }
 
     let node_id = &args[2];
-    if !graph.nodes.contains_key(node_id) {
-        eprintln!("cannot insert into missing node `{node_id}`");
-        std::process::exit(1);
-    }
-
     let variable = &args[3];
     let operation = parse_operation_type(&args[4]).unwrap_or_else(|| {
         eprintln!(
@@ -216,7 +211,7 @@ fn run_analyze_source(
         std::process::exit(2);
     });
 
-    let result = graph.insert_operation(node_id, variable, operation);
+    let result = try_insert_or_exit(&mut graph, node_id, variable, operation);
     println!();
     println!("After insertion: {operation:?}({variable}) into {node_id}");
     println!("Matches direct scan: {}", result.matches_direct_scan());
@@ -274,7 +269,7 @@ fn run_source_reproduction(
         println!("Table 2 d_OPN_set reproduction from parsed {label}");
         format_helper::print_paper_table_2(&graph);
 
-        let result = graph.insert_operation("Act2", "v", OperationType::Write);
+        let result = try_insert_or_exit(&mut graph, "Act2", "v", OperationType::Write);
         println!();
         println!("After Program 2 insertion: Write(v) into Act2");
         println!("Matches direct scan: {}", result.matches_direct_scan());
@@ -314,7 +309,7 @@ fn run_paper_reproduction() {
     println!("Initial CCA counts on And1, computed from Program 1");
     format_helper::print_counts(&initial_counts);
 
-    let result = graph.insert_operation("Act2", "v", OperationType::Write);
+    let result = try_insert_or_exit(&mut graph, "Act2", "v", OperationType::Write);
     println!();
     println!("Program 2 insertion: add Write(v) into Act2");
     println!(
@@ -339,7 +334,12 @@ fn run_paper_reproduction() {
     println!("CCA counts on And1 after insertion");
     format_helper::print_counts(&after_insert_counts);
 
-    let delete_result = graph.delete_operation("Act2", "v", OperationType::Write);
+    let delete_result = graph
+        .try_delete_operation("Act2", "v", OperationType::Write)
+        .unwrap_or_else(|error| {
+            eprintln!("{error}");
+            std::process::exit(1);
+        });
     let after_delete_counts = format_helper::anomaly_counts(&graph, "And1");
     println!();
     println!("Future-work extension check: delete the inserted Write(v) from Act2");
@@ -358,4 +358,18 @@ fn run_figure6(depth: Option<usize>) {
 fn run_bench_paper_table5() {
     let rows = tt_graph_cdfa_rust::bench_corpus::bench_corpus_rows(10);
     tt_graph_cdfa_rust::bench_corpus::print_table5_comparison(&rows);
+}
+
+fn try_insert_or_exit(
+    graph: &mut tt_graph_cdfa_rust::TTGraph,
+    node_id: &str,
+    variable: &str,
+    operation: OperationType,
+) -> tt_graph_cdfa_rust::DetectionResult {
+    graph
+        .try_insert_operation(node_id, variable, operation)
+        .unwrap_or_else(|error| {
+            eprintln!("{error}");
+            std::process::exit(1);
+        })
 }
