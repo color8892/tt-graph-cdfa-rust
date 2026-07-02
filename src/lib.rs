@@ -198,6 +198,19 @@ pub struct DeletionResult {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DeletionVerificationResult {
+    pub deletion: DeletionResult,
+    pub recomputed_removed_operation: bool,
+    pub summary_matches_recomputed: bool,
+}
+
+impl DeletionVerificationResult {
+    pub fn matches_recomputed_state(&self) -> bool {
+        self.summary_matches_recomputed
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum TTGraphError {
     MissingNode { node_id: String },
     InvalidGraph { errors: Vec<String> },
@@ -380,6 +393,47 @@ impl TTGraph {
         }
     }
 
+    /// Deletes a data-flow operation and checks the resulting summaries against
+    /// a full recomputation baseline.
+    ///
+    /// This is intended for verification and reproduction paths. It keeps
+    /// `delete_operation` lightweight while exposing the stronger invariant
+    /// needed to defend deletion as an extension of the insertion algorithm.
+    ///
+    /// # Preconditions
+    /// The target node must exist in the graph.
+    ///
+    /// # Panics
+    /// Panics if `tnode_id` is not present in the graph.
+    pub fn delete_operation_with_recompute_check(
+        &mut self,
+        tnode_id: &str,
+        variable: &str,
+        op: OperationType,
+    ) -> DeletionVerificationResult {
+        let mut recomputed = self.clone();
+        let deletion = self.delete_operation(tnode_id, variable, op);
+        let recomputed_removed_operation = recomputed
+            .nodes
+            .get_mut(tnode_id)
+            .expect("TNode must exist")
+            .operations
+            .remove(&Operation::new(variable, op));
+
+        if recomputed_removed_operation {
+            recomputed.rebuild_all_d_opn_sets();
+            recomputed.recompute_all_cca_sets();
+        }
+
+        DeletionVerificationResult {
+            summary_matches_recomputed: deletion.removed_operation == recomputed_removed_operation
+                && self.nodes == recomputed.nodes
+                && self.children_index == recomputed.children_index,
+            deletion,
+            recomputed_removed_operation,
+        }
+    }
+
     /// Deletes a data-flow operation without panicking on invalid input.
     pub fn try_delete_operation(
         &mut self,
@@ -389,6 +443,18 @@ impl TTGraph {
     ) -> Result<DeletionResult, TTGraphError> {
         self.validate_for_operation(tnode_id)?;
         Ok(self.delete_operation(tnode_id, variable, op))
+    }
+
+    /// Deletes a data-flow operation without panicking on invalid input, then
+    /// checks the mutated graph against a full recomputation baseline.
+    pub fn try_delete_operation_with_recompute_check(
+        &mut self,
+        tnode_id: &str,
+        variable: &str,
+        op: OperationType,
+    ) -> Result<DeletionVerificationResult, TTGraphError> {
+        self.validate_for_operation(tnode_id)?;
+        Ok(self.delete_operation_with_recompute_check(tnode_id, variable, op))
     }
 
     /// Inserts a data-flow operation into a node using only the summary-based
@@ -1397,9 +1463,13 @@ mod tests {
                 .contains(&CcaEntry::new("v", "Act2", "Act3"))
         );
 
-        let delete_result = graph.delete_operation("Act2", "v", OperationType::Write);
+        let verification =
+            graph.delete_operation_with_recompute_check("Act2", "v", OperationType::Write);
+        let delete_result = &verification.deletion;
 
         assert!(delete_result.removed_operation);
+        assert!(verification.matches_recomputed_state());
+        assert!(verification.recomputed_removed_operation);
         assert_eq!(delete_result.touched_and_nodes, vec!["And1".to_string()]);
         assert_eq!(
             delete_result.summary_blocks_updated,
@@ -1423,6 +1493,39 @@ mod tests {
                 .contains(&CcaEntry::new("v", "Act2", "Act3"))
         );
         assert_eq!(graph.nodes["And1"].cca_sets, initial_cca_sets);
+    }
+
+    #[test]
+    fn deletion_matches_recomputed_baseline_for_nested_control_flow() {
+        let initial = build_nested_control_flow_graph();
+        let mut graph = initial.clone();
+        let insert_result = graph.insert_operation("ActThen", "x", OperationType::Write);
+        assert!(insert_result.matches_direct_scan());
+        assert!(
+            graph.nodes["AndRoot"].cca_sets[&CcaType::WriteRead]
+                .contains(&CcaEntry::new("x", "ActThen", "ActRead"))
+        );
+
+        let verification =
+            graph.delete_operation_with_recompute_check("ActThen", "x", OperationType::Write);
+
+        assert!(verification.deletion.removed_operation);
+        assert!(verification.matches_recomputed_state());
+        assert_eq!(graph, initial);
+    }
+
+    #[test]
+    fn deletion_verification_missing_operation_matches_recomputed_noop() {
+        let mut graph = build_paper_example_graph();
+        let before = graph.clone();
+
+        let verification =
+            graph.delete_operation_with_recompute_check("Act2", "v", OperationType::Write);
+
+        assert!(!verification.deletion.removed_operation);
+        assert!(!verification.recomputed_removed_operation);
+        assert!(verification.matches_recomputed_state());
+        assert_eq!(graph, before);
     }
 
     #[test]
@@ -1486,12 +1589,13 @@ mod tests {
             .unwrap();
 
         let delete_result = graph
-            .try_delete_operation("Act2", "v", OperationType::Write)
+            .try_delete_operation_with_recompute_check("Act2", "v", OperationType::Write)
             .unwrap();
 
-        assert!(delete_result.removed_operation);
+        assert!(delete_result.deletion.removed_operation);
+        assert!(delete_result.matches_recomputed_state());
         assert_eq!(
-            delete_result.summary_blocks_updated,
+            delete_result.deletion.summary_blocks_updated,
             vec!["B3".to_string(), "B1".to_string()]
         );
         assert!(

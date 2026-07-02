@@ -55,7 +55,9 @@ pub fn demo_output() -> String {
 pub fn delete_demo_output() -> String {
     let mut graph = build_paper_example_graph();
     let insert_result = graph.insert_operation("Act2", "v", OperationType::Write);
-    let delete_result = graph.delete_operation("Act2", "v", OperationType::Write);
+    let verification =
+        graph.delete_operation_with_recompute_check("Act2", "v", OperationType::Write);
+    let delete_result = &verification.deletion;
 
     let mut output = String::new();
     let _ = writeln!(output, "TT Graph CDFA Rust deletion demo");
@@ -69,6 +71,11 @@ pub fn delete_demo_output() -> String {
         output,
         "Removed operation: {}",
         delete_result.removed_operation
+    );
+    let _ = writeln!(
+        output,
+        "Matches recomputed baseline: {}",
+        verification.matches_recomputed_state()
     );
     let _ = writeln!(
         output,

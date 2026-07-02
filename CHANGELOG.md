@@ -11,6 +11,8 @@ the `Unreleased` section to group user-visible changes.
 
 - Structured CLI argument parsing with `clap`.
 - Typed JSON export and diagnostics serialization via `serde_json`.
+- Deletion verification against a full recomputation baseline, covering paper
+  and nested control-flow cases.
 - CLI integration tests for help, usage errors, default demo behavior, JSON
   export, and diagnostics error output.
 - Contributor guidance and reproduction-oriented documentation notes.
@@ -19,4 +21,3 @@ the `Unreleased` section to group user-visible changes.
 
 - Graph export and diagnostics JSON generation now use typed schemas instead of
   manually assembled JSON strings.
-

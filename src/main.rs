@@ -335,7 +335,7 @@ fn run_paper_reproduction() {
     format_helper::print_counts(&after_insert_counts);
 
     let delete_result = graph
-        .try_delete_operation("Act2", "v", OperationType::Write)
+        .try_delete_operation_with_recompute_check("Act2", "v", OperationType::Write)
         .unwrap_or_else(|error| {
             eprintln!("{error}");
             std::process::exit(1);
@@ -343,7 +343,14 @@ fn run_paper_reproduction() {
     let after_delete_counts = format_helper::anomaly_counts(&graph, "And1");
     println!();
     println!("Future-work extension check: delete the inserted Write(v) from Act2");
-    println!("Removed operation: {}", delete_result.removed_operation);
+    println!(
+        "Removed operation: {}",
+        delete_result.deletion.removed_operation
+    );
+    println!(
+        "Deletion matches full recomputation baseline: {}",
+        delete_result.matches_recomputed_state()
+    );
     println!(
         "After deletion returns to initial CCA counts: {}",
         after_delete_counts == initial_counts

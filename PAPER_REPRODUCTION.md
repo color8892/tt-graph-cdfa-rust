@@ -94,7 +94,7 @@ The tests lock down:
 - Program 2 insertion results.
 - Algorithm 1 / Algorithm 2 equivalence.
 - Nested AND/XOR/LOOP summary propagation against direct scan.
-- Deletion extension behavior.
+- Deletion extension behavior against a full recomputation baseline.
 - JSON export of nodes, `d_OPN_set`, and CCA sets after insertion, including a
   golden fixture regression test.
 - Versioned JSON artifact schema in `docs/artifact-schema.md`.
@@ -108,9 +108,10 @@ Known paper issues handled by this reproduction:
   operation is `Read` or `Kill`. This implementation normalizes tuple order so
   `WriteRead(v, a, b)` always stores the Write node first and the Read node
   second.
-- Deletion is future work in the paper. This crate implements a conservative
-  deletion extension by removing the operation from ancestor `d_OPN_set`
-  records and recomputing affected AND-node CCA sets.
+- Deletion is future work in the paper. This crate implements a conservative,
+  verified deletion extension by removing the operation from ancestor
+  `d_OPN_set` records, recomputing affected AND-node CCA sets, and checking
+  selected deletion paths against a full recomputation baseline.
 
 Out of scope for the current reproduction:
 

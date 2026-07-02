@@ -315,7 +315,7 @@ These are implemented but not part of the original paper's core contribution.
 
 | Feature | Location | Tests |
 |---------|----------|-------|
-| Deletion of inserted operations | `delete_operation` in `src/lib.rs` | `delete_inserted_operation_updates_summaries_and_cca_sets`, `deleting_missing_operation_is_noop` |
+| Deletion of inserted operations | `delete_operation` and `delete_operation_with_recompute_check` in `src/lib.rs` | `delete_inserted_operation_updates_summaries_and_cca_sets`, `deletion_matches_recomputed_baseline_for_nested_control_flow`, `deletion_verification_missing_operation_matches_recomputed_noop` |
 | Nested LOOP/XOR/AND correctness | `build_nested_control_flow_graph` in `src/lib.rs` tests | `nested_loop_xor_and_graph_summary_matches_direct_scan` |
 | JSON artifact export | `src/export.rs` | `exports_*`, golden fixture test |
 | Graphviz DOT export | `TTGraph::to_dot` | manual via `cargo run -- dot` |

@@ -63,8 +63,23 @@ Expected outputs:
 - Nested AND/XOR/LOOP correctness tests and synthetic AND benchmarks.
 - C++ frontend for scoped paper examples, including an implicit `std::thread` variant.
 - JSON artifact and diagnostics export for downstream tooling.
-- Prototype deletion support.
+- Verified deletion extension for the paper's future-work direction.
 - VS Code prototype with Problems diagnostics and Mermaid webview graph.
+
+## Deletion Extension
+
+The paper lists deletion as future work. This crate implements a conservative
+extension for deleting an operation from a TT Graph node:
+
+- remove the operation from the target node;
+- propagate the removal through ancestor BLOCK `d_OPN_set` summaries;
+- recompute CCA sets for affected AND controls;
+- verify selected deletion paths against a full recomputation baseline.
+
+The implementation is intentionally framed as an engineering extension, not as a
+new published algorithm proof. Tests cover the paper Program 2 deletion back to
+Program 1, missing-operation no-op behavior, and nested LOOP/XOR/AND deletion
+against full recomputation.
 
 ## Documentation
 
